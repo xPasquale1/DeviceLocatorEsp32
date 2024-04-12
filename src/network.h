@@ -4,6 +4,7 @@
 #include <memory.h>
 #include "esp_wifi.h"
 #include "lwip/sockets.h"
+#include <vector>
 
 namespace Wifi{
 
@@ -16,6 +17,7 @@ namespace Wifi{
         const char* password;
         int8_t rssi;
         uint8_t channel = 0;
+        uint8_t bssid[6]{0};
     };
 
     enum MESSAGECODES{
@@ -142,6 +144,7 @@ namespace Wifi{
         if(err = esp_wifi_scan_get_ap_records(&count, records) != ERR_OK) return err;
         data.rssi = records[0].rssi;
         data.channel = records[0].primary;
+        for(uint8_t i=0; i < 6; ++i) data.bssid[i] = records[0].bssid[i];
         return ERR_OK;
     }
 
