@@ -2,6 +2,15 @@
 #include "network.h"
 #include "constants.h"
 
+/*
+    TODOS:
+    Router nicht statisch hier festlegen, am besten einen Server laufen lassen dem man die Routerdaten mitteilen kann, ebenso wie IP-Adresse des UPD-Ziels
+
+    Sollte Informationen an den CLient senden, sollte es Verbindungsprobleme,... geben, auch Statusupdates über den Scanfortschritt oder ähnliches wäre gut
+
+    Der Scan kommt mir immer noch sehr langsam vor... Passives Scanning dauert auch 400ms pro Router... Überlegen woran das liegen könnte
+*/
+
 #define SENDPIN 35
 #define INCXPIN 34
 #define INCYPIN 32
