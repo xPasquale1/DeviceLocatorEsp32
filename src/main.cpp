@@ -59,26 +59,26 @@ void setup(){
     if(Wifi::createUDPClient(client, "192.168.178.66", 4984) != ERR_OK) while(1);
     Serial.println("Alles initialisiert");
     networkData[0].ssid = WIFISSID0;
-    networkData[0].password = WIFIPASSWORD0;
     networkData[1].ssid = WIFISSID1;
-    networkData[1].password = WIFIPASSWORD1;
     networkData[2].ssid = WIFISSID2;
-    networkData[2].password = WIFIPASSWORD2;
-}
-
-void loop(){
     while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
-        if(Wifi::connectToNetwork(WIFISSID0, WIFIPASSWORD0, 6000) == ERR_OK){
+        if(Wifi::setNetwork(WIFISSID0, WIFIPASSWORD0, 6000) == ERR_OK){
             Serial.println("Verbindung hergestellt!");
             break;
         }
     }
+}
+
+void loop(){
+    while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::reconnect(6000);
     if(buttonPressed[0] == 1){
         buttonPressed[0] = 2;
         unsigned long startTime = millis();
         for(uint8_t i=0; i < NETWORKCOUNT; ++i){
-            Wifi::scanForNetworkAvg(networkData[i], 32, 1);
+            if(Wifi::scanForNetworkAvg(networkData[i], 128, 10, 4, 40) != ERR_OK) Serial.println("Avg Scan Fehler");
+            Serial.println(networkData[i].rssi);
         }
+        if(Wifi::reconnect(5000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");
         Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
         for(uint8_t i=0; i < 3; ++i)
             if(Wifi::sendData(client, Wifi::SEND_SIGNALSTRENGTH, networkData, NETWORKCOUNT) <= 0) Serial.println("Fehler beim senden von rssi avg");
@@ -94,9 +94,12 @@ void loop(){
     if(buttonPressed[3] == 1){
         unsigned long startTime = millis();
         for(uint8_t i=0; i < NETWORKCOUNT; ++i){
-            Wifi::scanForNetwork(networkData[i], 1);
+            if(Wifi::scanForNetwork(networkData[i], 5, 40) != ERR_OK) Serial.println("Scan kaputt :c");
+            Serial.println(networkData[i].rssi);
         }
+        if(Wifi::reconnect(5000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");
         Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
         if(Wifi::sendData(client, Wifi::SEND_SIGNALSTRENGTH, networkData, NETWORKCOUNT) <= 0) Serial.println("Fehler beim senden von rssi non avg");
+        delay(10);  //TODO Senden ist mal wieder kaputt...
     }
 }

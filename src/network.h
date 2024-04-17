@@ -14,7 +14,6 @@ namespace Wifi{
 
     struct NetworkData{
         const char* ssid;
-        const char* password;
         int8_t rssi;
         uint8_t channel = 0;
         uint8_t bssid[6]{0};
@@ -28,14 +27,16 @@ namespace Wifi{
 
     struct WifiStation{
         esp_netif_t* netif = nullptr;
-        uint8_t flags = 0;
+        volatile uint8_t flags = 0;
         esp_netif_ip_info_t ipInfo = {};
+        uint8_t mac[6];
     }; static WifiStation client;
 
     void setFlag(WIFIFLAGS flag){client.flags |= flag;}
-    void resetFlag(WIFIFLAGS flag){client.flags &= flag;}
+    void resetFlag(WIFIFLAGS flag){client.flags &= ~flag;}
     bool getFlag(WIFIFLAGS flag){return (client.flags & flag);}
 
+    static volatile bool scanEventDone;
     void eventHandler(void* event_handler_arg, esp_event_base_t event_base, int32_t event_id, void* event_data){
         if(event_base == WIFI_EVENT){
             switch(event_id){
@@ -44,12 +45,14 @@ namespace Wifi{
                     break;
                 }
                 case WIFI_EVENT_STA_CONNECTED:{
-                    setFlag(WIFICONNECTED);
                     break;
                 }
                 case WIFI_EVENT_STA_DISCONNECTED:{
                     resetFlag(WIFICONNECTED);
-                    esp_wifi_connect();
+                    break;
+                }
+                case WIFI_EVENT_SCAN_DONE:{
+                    scanEventDone = true;
                     break;
                 }
             }
@@ -58,10 +61,75 @@ namespace Wifi{
                 case IP_EVENT_STA_GOT_IP:{
                     ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
                     client.ipInfo = event->ip_info;
-                    Serial.println(inet_ntoa(client.ipInfo.ip.addr));
+                    // Serial.println(inet_ntoa(client.ipInfo.ip.addr));
+                    setFlag(WIFICONNECTED);
                     break;
                 }
             }
+        }
+    }
+
+    void printPacketTag(uint8_t* buffer, uint32_t length){
+        for(uint16_t i=0; i < length;){
+            Serial.print("Tag: ");
+            Serial.println(buffer[i++]);
+            uint16_t tagLength = buffer[i++];
+            Serial.print("Länge: ");
+            Serial.println(tagLength);
+            Serial.print("Daten: ");
+            for(uint16_t j=0; j < tagLength; ++j){
+                Serial.print(buffer[i++]);
+                Serial.print(" ");
+            }
+            Serial.println();
+        }
+        Serial.println("--------------------------------------");
+    }
+
+    bool ssidCmp(const char* ssid1, uint8_t length1, const char* ssid2, uint8_t length2){
+        if(length1 != length2) return false;
+        for(uint16_t i=0; i < length1; ++i){
+            if(ssid1[i] != ssid2[i]) return false;
+        }
+        return true;
+    }
+
+    struct ExpectedScanData{
+        const char* ssid;
+        uint8_t ssidLength;
+        int8_t rssi;
+        uint8_t channel;
+        bool validData;
+    }; static volatile ExpectedScanData scanData;
+
+    void promiscuousPacketHandler(void* buffer, wifi_promiscuous_pkt_type_t type){
+        if(type == WIFI_PKT_MGMT){  //TODO unnötig, da alle anderen Pakete eh gefiltert werden sollten
+            wifi_promiscuous_pkt_t* packet = (wifi_promiscuous_pkt_t*)buffer;
+            uint8_t managmentType = packet->payload[0]>>4;
+            if(managmentType == 0b0101){
+                uint8_t* ssidField = packet->payload+38;
+                uint8_t ssidLength = packet->payload[37];
+                if(ssidCmp(scanData.ssid, scanData.ssidLength, (char*)ssidField, ssidLength)){
+                    scanData.rssi = packet->rx_ctrl.rssi;
+                    scanData.channel = packet->rx_ctrl.channel;
+                    scanData.validData = true;
+                }
+                // for(uint8_t i=0; i < ssidLength; ++i){
+                //     Serial.print((char)ssidField[i]);
+                // }
+                // Serial.println();
+            }
+            // if(managmentType == 0b0100){
+            //     Serial.print("Probe Request der Länge ");
+            //     Serial.print(packet->rx_ctrl.sig_len);
+            //     Serial.print(": ");
+            //     for(uint8_t i=0; i < 24; ++i){
+            //         Serial.print(packet->payload[i]);
+            //         Serial.print(" ");
+            //     }
+            //     Serial.println();
+            //     printPacketTag(&packet->payload[24], packet->rx_ctrl.sig_len-24);
+            // }
         }
     }
 
@@ -77,13 +145,47 @@ namespace Wifi{
         if(err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, eventHandler, NULL, NULL) != ERR_OK) return err;
         if(err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, eventHandler, NULL, NULL) != ERR_OK) return err;
 
+        if(err = esp_wifi_set_promiscuous(true) != ERR_OK) return err;
+        if(err = esp_wifi_set_promiscuous_rx_cb(promiscuousPacketHandler) != ERR_OK) return err;
+        wifi_promiscuous_filter_t filters;
+        filters.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
+        if(err = esp_wifi_set_promiscuous_filter(&filters) != ERR_OK) return err;
+
+        //TODO idk wie man das macht
+        wifi_ant_gpio_config_t antennaPinConfig;
+        // ESP32-WROOM-DA boards default antenna pins
+        antennaPinConfig.gpio_cfg[0] = {.gpio_select = 1, .gpio_num = 21};
+        antennaPinConfig.gpio_cfg[1] = {.gpio_select = 1, .gpio_num = 22};
+        if(err = esp_wifi_set_ant_gpio(&antennaPinConfig) != ERR_OK) return err;
+        wifi_ant_config_t antennaConfig;
+        antennaConfig.rx_ant_mode = WIFI_ANT_MODE_ANT0;
+        antennaConfig.tx_ant_mode = WIFI_ANT_MODE_ANT0;
+        antennaConfig.rx_ant_default = WIFI_ANT_ANT0;
+        antennaConfig.enabled_ant0 = 0;
+        antennaConfig.enabled_ant1 = 1;
+        if(err = esp_wifi_set_ant(&antennaConfig) != ERR_OK) return err;
+
+        if(err = esp_wifi_get_mac(WIFI_IF_STA, client.mac) != ERR_OK) return err;
+
+        return ERR_OK;
+    }
+
+    esp_err_t reconnect(unsigned long timeoutMillis = 5000){
+        esp_wifi_connect();
+        unsigned long startTime = millis();
+        while(!getFlag(WIFICONNECTED)){
+            if(millis() - startTime >= timeoutMillis) return ESP_ERR_TIMEOUT;
+        }
         return ERR_OK;
     }
 
     //Blockend
-    esp_err_t connectToNetwork(const char* ssid, const char* password, unsigned long timeoutMillis = 5000){
+    esp_err_t setNetwork(const char* ssid, const char* password, unsigned long timeoutMillis = 5000){
         unsigned long startTime = millis();
-        if(getFlag(WIFICONNECTED)) esp_wifi_disconnect();
+        if(getFlag(WIFICONNECTED)){
+            esp_wifi_disconnect();
+            esp_wifi_stop();
+        }
         if(!client.netif) client.netif = esp_netif_create_default_wifi_sta();
         if(!client.netif){
             Serial.println("Grrr Fehler bei esp_netif_create_default_wifi_sta");
@@ -115,36 +217,73 @@ namespace Wifi{
         return ERR_OK;
     }
 
-    //Blockend
-    //TODO sollte die BSSID nutzen, da die SSID ja nur für das Netzwerk gilt und nicht für den spezifischen Router
-    esp_err_t scanForNetwork(NetworkData& data, int8_t retries = 3, uint32_t max = 0, uint32_t min = 0){
-        esp_err_t err;
-        if(data.channel == 0) retries = 0;
-        if(!getFlag(WIFICONNECTED)) return ESP_FAIL;
-        wifi_scan_config_t scanConfig = {};
-        scanConfig.ssid = (uint8_t*)data.ssid;
-        scanConfig.channel = data.channel;
-        scanConfig.show_hidden = false;
-        scanConfig.bssid = nullptr;
-        scanConfig.scan_type = WIFI_SCAN_TYPE_ACTIVE;
-        scanConfig.scan_time.active.min = min;
-        scanConfig.scan_time.active.max = max;
-        uint16_t count;
-        do{
-            retries -= 1;
-            if(err = esp_wifi_scan_start(&scanConfig, true) != ERR_OK) return err;
-            if(err = esp_wifi_scan_get_ap_num(&count) != ERR_OK) return err;
-            if(count >= 1) break;
-        }while(retries >= 0);
-        if(count < 1){
-            data.channel = 0;
-            return ESP_FAIL;
+    static uint8_t supportedRates[] = {2, 4, 11, 22};
+    static uint8_t supportedRatesExt[] = {12, 18, 24, 36, 48, 72, 96, 108};
+
+    uint16_t addTagToPacket(uint8_t* packet, uint8_t* buffer, uint8_t type, uint8_t length)noexcept{
+        packet[0] = type;
+        packet[1] = length;
+        for(uint16_t i=0; i < length; ++i){
+            packet[i+2] = buffer[i];
         }
-        wifi_ap_record_t records[count];
-        if(err = esp_wifi_scan_get_ap_records(&count, records) != ERR_OK) return err;
-        data.rssi = records[0].rssi;
-        data.channel = records[0].primary;
-        for(uint8_t i=0; i < 6; ++i) data.bssid[i] = records[0].bssid[i];
+        return length+2;
+    }
+
+    //Länge der SSID OHNE Nullterminierung!
+    esp_err_t sendProbeRequest(const char* ssid, uint8_t ssidLength){
+        uint8_t buffer[256]{0};             //TODO könnte zu groß/klein sein
+        buffer[0] = 0x40;                   //PaketID
+        memset(&buffer[4], 0xFF, 6);        //Zielmacadresse
+        memcpy(&buffer[10], client.mac, 6); //Sendermacadresse
+        memset(&buffer[16], 0xFF, 6);       //BSSID
+        uint16_t offset = 0;
+        offset += addTagToPacket(&buffer[24], (uint8_t*)ssid, 0, ssidLength);
+        offset += addTagToPacket(&buffer[24+offset], supportedRates, 1, sizeof(supportedRates));
+        offset += addTagToPacket(&buffer[24+offset], supportedRatesExt, 50, sizeof(supportedRatesExt));
+        return esp_wifi_80211_tx(WIFI_IF_STA, buffer, 24+offset, true);
+    }
+
+    //Blockend und disconnected die aktive Verbindung, also muss nach allen Scans Wifi::reconnect() aufgerufen werden
+    //TODO sollte die BSSID nutzen, da die SSID ja nur für das Netzwerk gilt und nicht für den spezifischen Router
+    //TODO man könnte ja alle Probe-Requests auf einmal senden, auf Antworten im Timeoutfenster warten und dann die entsprechend nicht empfangenen neu senden
+    esp_err_t scanForNetwork(NetworkData& data, int8_t retries = 3, uint32_t timeoutMillis = 100){
+        esp_err_t err;
+        if(err = esp_wifi_disconnect() != ERR_OK) return err;
+        scanData.validData = false;
+        scanData.rssi = 0;
+        scanData.ssid = data.ssid;
+        scanData.ssidLength = strlen(data.ssid);
+        scanData.channel = 0;
+        if(data.channel == 0){
+            uint8_t retriesTmp = retries;
+            for(uint8_t i=1; i <= 13; ++i){
+                retries = retriesTmp;
+                if(err = esp_wifi_set_channel(i, WIFI_SECOND_CHAN_NONE) != ERR_OK) return err;
+                while(retries >= 0){
+                    retries -= 1;
+                    unsigned long startTime = millis();
+                    if(err = sendProbeRequest(data.ssid, strlen(data.ssid)) != ERR_OK) return err;
+                    while(!scanData.validData){
+                        if(millis() - startTime >= timeoutMillis) break;
+                    }
+                    if(scanData.validData) goto scanEnd;
+                }
+            }
+        }else{
+            if(err = esp_wifi_set_channel(data.channel, WIFI_SECOND_CHAN_NONE) != ERR_OK) return err;
+            while(retries >= 0){
+                retries -= 1;
+                unsigned long startTime = millis();
+                if(err = sendProbeRequest(data.ssid, strlen(data.ssid)) != ERR_OK) return err;
+                while(!scanData.validData){
+                    if(millis() - startTime >= timeoutMillis) break;
+                }
+                if(scanData.validData) goto scanEnd;
+            }
+        }
+        scanEnd:
+        data.channel = scanData.channel;
+        data.rssi = scanData.rssi;
         return ERR_OK;
     }
 
@@ -153,14 +292,20 @@ namespace Wifi{
     };
 
     //Blockierend
-    //Ruft scanForNetwork einfach samples oft auf und speichert bei Erfolg den Medianwert in der NetworkData
+    //Ruft scanForNetwork einfach samples oft auf, wartet pauseMillis zwischen Messungen und speichert bei Erfolg den Wert von STATISICMETHOD auf alle Messungen in der NetworkData
+    //(Ein Scan dauert OHNE Probleme ca. 5ms, daher sind pauseMillis Werte unter ca. 5ms nicht möglich)
     //TODO STATISICMETHOD implementieren
-    esp_err_t scanForNetworkAvg(NetworkData& data, uint8_t samples, int8_t retries = 3, uint32_t max = 0, uint32_t min = 0){
+    esp_err_t scanForNetworkAvg(NetworkData& data, uint16_t samples, uint8_t pauseMillis = 10, int8_t retries = 3, uint32_t timeoutMillis = 100){
         esp_err_t err;
         int8_t buffer[samples];
         for(uint16_t i=0; i < samples; ++i){
-            if((err = scanForNetwork(data, retries, max, min)) != ERR_OK) return err;
+            unsigned long startTime = millis();
+            uint8_t sleepTime = pauseMillis;
+            if((err = scanForNetwork(data, retries, timeoutMillis)) != ERR_OK) return err;
+            unsigned long timediff = millis() - startTime;
             buffer[i] = data.rssi;
+            timediff <= pauseMillis ? sleepTime -= timediff : sleepTime = 0;
+            delay(sleepTime);
         }
         for(uint16_t i=0; i < samples; ++i){
             for(uint16_t j=0; j < samples; ++j){
