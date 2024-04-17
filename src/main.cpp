@@ -75,7 +75,7 @@ void loop(){
         buttonPressed[0] = 2;
         unsigned long startTime = millis();
         for(uint8_t i=0; i < NETWORKCOUNT; ++i){
-            if(Wifi::scanForNetworkAvg(networkData[i], 128, 10, 4, 40) != ERR_OK) Serial.println("Avg Scan Fehler");
+            if(Wifi::scanForNetworkAvg(networkData[i], 128, Wifi::MEDIAN, 10, 4, 40) != ERR_OK) Serial.println("Avg Scan Fehler");
             Serial.println(networkData[i].rssi);
         }
         if(Wifi::reconnect(5000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");

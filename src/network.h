@@ -287,15 +287,15 @@ namespace Wifi{
         return ERR_OK;
     }
 
-    enum STATISICMETHOD{
+    enum STATISTICMETHOD{
         MEDIAN, AVERAGE, HIGHESTOCCURANCE
     };
 
-    //Blockierend
-    //Ruft scanForNetwork einfach samples oft auf, wartet pauseMillis zwischen Messungen und speichert bei Erfolg den Wert von STATISICMETHOD auf alle Messungen in der NetworkData
+    //Blockierend und disconnected die aktive Verbindung, also muss nach allen Scans Wifi::reconnect() aufgerufen werden
+    //Ruft scanForNetwork einfach samples oft auf, wartet pauseMillis zwischen Messungen und speichert bei Erfolg den Wert von STATISTICMETHOD auf alle Messungen in der NetworkData
     //(Ein Scan dauert OHNE Probleme ca. 5ms, daher sind pauseMillis Werte unter ca. 5ms nicht möglich)
     //TODO STATISICMETHOD implementieren
-    esp_err_t scanForNetworkAvg(NetworkData& data, uint16_t samples, uint8_t pauseMillis = 10, int8_t retries = 3, uint32_t timeoutMillis = 100){
+    esp_err_t scanForNetworkAvg(NetworkData& data, uint16_t samples, STATISTICMETHOD method, uint8_t pauseMillis = 10, int8_t retries = 3, uint32_t timeoutMillis = 100){
         esp_err_t err;
         int8_t buffer[samples];
         for(uint16_t i=0; i < samples; ++i){
@@ -307,17 +307,53 @@ namespace Wifi{
             timediff <= pauseMillis ? sleepTime -= timediff : sleepTime = 0;
             delay(sleepTime);
         }
-        for(uint16_t i=0; i < samples; ++i){
-            for(uint16_t j=0; j < samples; ++j){
-                if(i==j) continue;
-                if(buffer[i] > buffer[j]){
-                    int8_t tmp = buffer[i];
-                    buffer[i] = buffer[j];
-                    buffer[j] = tmp;
+        switch(method){
+            case MEDIAN:{   //Bubblesort sollte genügen
+                for(uint16_t i=0; i < samples; ++i){
+                    for(uint16_t j=0; j < samples; ++j){
+                        if(i==j) continue;
+                        if(buffer[i] > buffer[j]){
+                            int8_t tmp = buffer[i];
+                            buffer[i] = buffer[j];
+                            buffer[j] = tmp;
+                        }
+                    }
                 }
+                data.rssi = buffer[samples/2];
+                break;
+            }
+            case AVERAGE:{
+                int32_t sum = 0;
+                for(uint16_t i=0; i < samples; ++i){
+                    sum += buffer[i];
+                }
+                data.rssi = sum/samples;
+                break;
+            }
+            case HIGHESTOCCURANCE:{
+                //TODO Annahme min. db = -90, max. db = -20
+                #define MINDB 20
+                #define MAXDB 90
+                uint16_t counter[MAXDB-MINDB]{0};
+                for(uint16_t i=0; i < samples; ++i){
+                    counter[abs(buffer[i])] += 1;
+                }
+                uint8_t idx = 0;
+                uint16_t count = counter[0];
+                for(uint8_t i=1; i < MAXDB-MINDB; ++i){
+                    if(counter[i] > count){
+                        count = counter[i];
+                        idx = i;
+                    }
+                }
+                data.rssi = -(idx+MINDB);
+                break;
+            }
+            default:{
+                Serial.println("Statistische Methode nicht gefunden...");
+                return ESP_FAIL;
             }
         }
-        data.rssi = buffer[samples/2];
         return ERR_OK;
     }
 
