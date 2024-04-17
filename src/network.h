@@ -152,7 +152,7 @@ namespace Wifi{
         if(err = esp_wifi_set_promiscuous_filter(&filters) != ERR_OK) return err;
 
         //TODO idk wie man das macht
-        wifi_ant_gpio_config_t antennaPinConfig;
+        wifi_ant_gpio_config_t antennaPinConfig = {};
         // ESP32-WROOM-DA boards default antenna pins
         antennaPinConfig.gpio_cfg[0] = {.gpio_select = 1, .gpio_num = 21};
         antennaPinConfig.gpio_cfg[1] = {.gpio_select = 1, .gpio_num = 22};
@@ -171,7 +171,8 @@ namespace Wifi{
     }
 
     esp_err_t reconnect(unsigned long timeoutMillis = 5000){
-        esp_wifi_connect();
+        esp_err_t err;
+        if(err = esp_wifi_connect() != ERR_OK) return err;
         unsigned long startTime = millis();
         while(!getFlag(WIFICONNECTED)){
             if(millis() - startTime >= timeoutMillis) return ESP_ERR_TIMEOUT;

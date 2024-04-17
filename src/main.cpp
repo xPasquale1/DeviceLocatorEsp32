@@ -75,10 +75,10 @@ void loop(){
         buttonPressed[0] = 2;
         unsigned long startTime = millis();
         for(uint8_t i=0; i < NETWORKCOUNT; ++i){
-            if(Wifi::scanForNetworkAvg(networkData[i], 128, Wifi::MEDIAN, 10, 4, 40) != ERR_OK) Serial.println("Avg Scan Fehler");
+            if(Wifi::scanForNetworkAvg(networkData[i], 128, Wifi::AVERAGE, 10, 4, 40) != ERR_OK) Serial.println("Avg Scan Fehler");
             Serial.println(networkData[i].rssi);
         }
-        if(Wifi::reconnect(5000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");
+        if(Wifi::reconnect(2000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");
         Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
         for(uint8_t i=0; i < 3; ++i)
             if(Wifi::sendData(client, Wifi::SEND_SIGNALSTRENGTH, networkData, NETWORKCOUNT) <= 0) Serial.println("Fehler beim senden von rssi avg");
@@ -94,12 +94,12 @@ void loop(){
     if(buttonPressed[3] == 1){
         unsigned long startTime = millis();
         for(uint8_t i=0; i < NETWORKCOUNT; ++i){
-            if(Wifi::scanForNetwork(networkData[i], 5, 40) != ERR_OK) Serial.println("Scan kaputt :c");
+            if(Wifi::scanForNetwork(networkData[i], 6, 30) != ERR_OK) Serial.println("Scan kaputt :c");
             Serial.println(networkData[i].rssi);
         }
-        if(Wifi::reconnect(5000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");
+        if(Wifi::reconnect(2000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");
         Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
         if(Wifi::sendData(client, Wifi::SEND_SIGNALSTRENGTH, networkData, NETWORKCOUNT) <= 0) Serial.println("Fehler beim senden von rssi non avg");
-        delay(10);  //TODO Senden ist mal wieder kaputt...
+        delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
     }
 }
