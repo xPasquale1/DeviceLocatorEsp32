@@ -13,7 +13,7 @@ namespace Wifi{
     };
 
     struct NetworkData{
-        const char* ssid;
+        char* ssid;
         int8_t rssi;
         uint8_t channel = 0;
         uint8_t bssid[6]{0};
@@ -22,8 +22,19 @@ namespace Wifi{
     enum MESSAGECODES{
         SEND_POSITION_X,
         SEND_POSITION_Y,
-        SEND_SIGNALSTRENGTH
+        SEND_SIGNALSTRENGTH,
+        ADD_ROUTER,
+        SETSENDIP,
+        ACK
     };
+    /*  Nachrichtenformate:
+        1 Byte SEND_POSITION_X
+        1 Byte SEND_POSITION_Y
+        1 Byte SEND_SIGNALSTRENGTH | 1 Byte RSSI Router 1 | 1 Byte RSSI Router 2 | 1Byte RSSI Router 3,...
+        1 Byte ADD_ROUTER          | n Bytes SSID
+        1 Byte SETSENDIP           | 4 Bytes IP           | 2 Bytes PORT
+        1 Byte ACK
+    */
 
     struct WifiStation{
         esp_netif_t* netif = nullptr;
@@ -36,7 +47,6 @@ namespace Wifi{
     void resetFlag(WIFIFLAGS flag){client.flags &= ~flag;}
     bool getFlag(WIFIFLAGS flag){return (client.flags & flag);}
 
-    static volatile bool scanEventDone;
     void eventHandler(void* event_handler_arg, esp_event_base_t event_base, int32_t event_id, void* event_data){
         if(event_base == WIFI_EVENT){
             switch(event_id){
@@ -51,17 +61,12 @@ namespace Wifi{
                     resetFlag(WIFICONNECTED);
                     break;
                 }
-                case WIFI_EVENT_SCAN_DONE:{
-                    scanEventDone = true;
-                    break;
-                }
             }
         }else if(event_base == IP_EVENT){
             switch(event_id){
                 case IP_EVENT_STA_GOT_IP:{
                     ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
                     client.ipInfo = event->ip_info;
-                    // Serial.println(inet_ntoa(client.ipInfo.ip.addr));
                     setFlag(WIFICONNECTED);
                     break;
                 }
@@ -215,6 +220,7 @@ namespace Wifi{
                 return ESP_FAIL;
             }
         }
+        Serial.println(inet_ntoa(client.ipInfo.ip.addr));
         return ERR_OK;
     }
 
@@ -358,47 +364,79 @@ namespace Wifi{
         return ERR_OK;
     }
 
-    struct UDPClient{
-        int socket = -1;
-        sockaddr_in receiver = {};
+    struct UDPServer{
+        int socket = -1;                //Socketdeskriptor
+        sockaddr_in serverAddr = {};    //Adresse des Servers
+        sockaddr_in receiver = {};      //Adresse des Empfängers
+        uint8_t recvBuffer[64];
+        uint8_t sendBuffer[16];
     };
 
-    esp_err_t createUDPClient(UDPClient& client, const char* ip, uint16_t port){
-        client.socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if(client.socket == -1) return ESP_FAIL;
-        client.receiver.sin_family = AF_INET;
-        client.receiver.sin_addr.s_addr = inet_addr(ip);
-        client.receiver.sin_port = htons(port);
+    esp_err_t createUDPServer(UDPServer& server, const char* ip, uint16_t port, uint32_t timeoutMillis=10){
+        server.socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if(server.socket == -1) return ESP_FAIL;
+        server.receiver.sin_family = AF_INET;
+        server.receiver.sin_addr.s_addr = inet_addr(ip);
+        server.receiver.sin_port = htons(port);
+
+        server.serverAddr.sin_family = AF_INET;
+        server.serverAddr.sin_port = htons(port);       //TODO muss nicht
+        server.serverAddr.sin_addr.s_addr = INADDR_ANY;
+
+        timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = timeoutMillis*1000;
+        if(setsockopt(server.socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout)) == -1) return ESP_FAIL;
+
+        if(bind(server.socket, (sockaddr*)&server.serverAddr, sizeof(server.serverAddr)) == -1) return ESP_FAIL;
         return ERR_OK;
     }
 
-    static uint8_t sendBuffer[16];
-    static size_t sendBufferSize = 0;
+    void changeUDPServerDestination(UDPServer& server, const char* ip, uint16_t port){
+        server.receiver.sin_addr.s_addr = inet_addr(ip);
+        server.receiver.sin_port = htons(port);
+    }
+
+    void changeUDPServerDestination(UDPServer& server, uint32_t ip, uint16_t port){
+        server.receiver.sin_addr.s_addr = ip;
+        server.receiver.sin_port = htons(port);
+    }
+
+    //Nicht blockend, return > 0 falls Daten vorhanden sind
+    int recvData(UDPServer& server, sockaddr_in* transmitter = nullptr){
+        socklen_t size = sizeof(sockaddr_in);
+        return recvfrom(server.socket, server.recvBuffer, sizeof(server.recvBuffer), 0, (sockaddr*)transmitter, &size);
+    }
+
+    //Blockend, sendet die Daten die im server.sendBuffer stehen
+    int sendData(UDPServer& server, size_t length){return sendto(server.socket, server.sendBuffer, length, 0, (sockaddr*)&server.receiver, sizeof(server.receiver));}
+
     //Blockend
-    int sendData(UDPClient& client, MESSAGECODES code, NetworkData* data, uint8_t dataCount){
-        if(client.socket == -1) return -1;
+    int sendMessagecode(UDPServer& server, MESSAGECODES code, NetworkData* data, uint8_t dataCount){
+        if(server.socket == -1) return -1;
+        size_t sendBufferSize = 0;
         switch(code){
             case SEND_POSITION_X:{
-                sendBuffer[0] = SEND_POSITION_X;
+                server.sendBuffer[0] = SEND_POSITION_X;
                 sendBufferSize = 1;
                 break;
             }
             case SEND_POSITION_Y:{
-                sendBuffer[0] = SEND_POSITION_Y;
+                server.sendBuffer[0] = SEND_POSITION_Y;
                 sendBufferSize = 1;
                 break;
             }
             case SEND_SIGNALSTRENGTH:{
                 if(data == nullptr) return -1;
-                sendBuffer[0] = SEND_SIGNALSTRENGTH;
+                server.sendBuffer[0] = SEND_SIGNALSTRENGTH;
                 for(uint8_t i=0; i < dataCount; ++i){
-                    sendBuffer[i+1] = data[i].rssi;
+                    server.sendBuffer[i+1] = data[i].rssi;
                 }
                 sendBufferSize = dataCount+1;
                 break;
             }
             default: return -1;
         }
-        return sendto(client.socket, sendBuffer, sendBufferSize, 0, (sockaddr*)&client.receiver, sizeof(client.receiver));
+        return sendto(server.socket, server.sendBuffer, sendBufferSize, 0, (sockaddr*)&server.receiver, sizeof(server.receiver));
     }
 }
