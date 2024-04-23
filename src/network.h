@@ -253,6 +253,7 @@ namespace Wifi{
     //Blockend und disconnected die aktive Verbindung, also muss nach allen Scans Wifi::reconnect() aufgerufen werden
     //TODO sollte die BSSID nutzen, da die SSID ja nur für das Netzwerk gilt und nicht für den spezifischen Router
     //TODO man könnte ja alle Probe-Requests auf einmal senden, auf Antworten im Timeoutfenster warten und dann die entsprechend nicht empfangenen neu senden
+    //TODO disconnect könnte man verhindern mit einem zweiten esp32
     esp_err_t scanForNetwork(NetworkData& data, int8_t retries = 3, uint32_t timeoutMillis = 100){
         esp_err_t err;
         if(err = esp_wifi_disconnect() != ERR_OK) return err;
@@ -263,7 +264,7 @@ namespace Wifi{
         scanData.channel = 0;
         if(data.channel == 0){
             uint8_t retriesTmp = retries;
-            for(uint8_t i=1; i <= 13; ++i){
+            for(uint8_t i=1; i <= 13; ++i){     //Teste alle Channel durch
                 retries = retriesTmp;
                 if(err = esp_wifi_set_channel(i, WIFI_SECOND_CHAN_NONE) != ERR_OK) return err;
                 while(retries >= 0){
@@ -301,7 +302,6 @@ namespace Wifi{
     //Blockierend und disconnected die aktive Verbindung, also muss nach allen Scans Wifi::reconnect() aufgerufen werden
     //Ruft scanForNetwork einfach samples oft auf, wartet pauseMillis zwischen Messungen und speichert bei Erfolg den Wert von STATISTICMETHOD auf alle Messungen in der NetworkData
     //(Ein Scan dauert OHNE Probleme ca. 5ms, daher sind pauseMillis Werte unter ca. 5ms nicht möglich)
-    //TODO STATISICMETHOD implementieren
     esp_err_t scanForNetworkAvg(NetworkData& data, uint16_t samples, STATISTICMETHOD method, uint8_t pauseMillis = 10, int8_t retries = 3, uint32_t timeoutMillis = 100){
         esp_err_t err;
         int8_t buffer[samples];
@@ -311,6 +311,7 @@ namespace Wifi{
             if((err = scanForNetwork(data, retries, timeoutMillis)) != ERR_OK) return err;
             unsigned long timediff = millis() - startTime;
             buffer[i] = data.rssi;
+            if(data.rssi == 0) return ERR_OK;   //TODO vllt sollte man zumindest beim Scan hier einen Fehler melden, da 0 Werte ja ungewünscht sind
             timediff <= pauseMillis ? sleepTime -= timediff : sleepTime = 0;
             delay(sleepTime);
         }

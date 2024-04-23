@@ -5,9 +5,9 @@
 
 /*
     TODOS:
-    Router nicht statisch hier festlegen, am besten einen Server laufen lassen dem man die Routerdaten mitteilen kann, ebenso wie IP-Adresse des UPD-Ziels
-
     Sollte Informationen an den Client senden, sollte es Verbindungsprobleme,... geben, auch Statusupdates über den Scanfortschritt oder ähnliches wäre gut
+
+    Der Client sollte auch Befehle senden können, um Datenpunkte anzufragen, damit man auch Daten auslesen kann während niemand im Weg steht
 */
 
 #define SENDPIN 35
@@ -73,6 +73,28 @@ void buttonTask(void* params){
     }
 }
 
+void runScan(bool avgScan=false){
+    if(networkData.size() < 1) return;
+    unsigned long startTime = millis();
+    for(uint8_t i=0; i < networkData.size(); ++i){
+        esp_err_t err = avgScan ? Wifi::scanForNetworkAvg(networkData[i], 128, Wifi::AVERAGE, 10, 4, 40) : Wifi::scanForNetwork(networkData[i], 6, 30);
+        if(err != ERR_OK){
+            Serial.println("Scan fehlgeschlagen :c");
+            return;
+        }
+        Serial.println(networkData[i].rssi);
+    }
+    if(!Wifi::getFlag(Wifi::WIFICONNECTED))
+        if(Wifi::reconnect(2000) != ERR_OK){
+            Serial.println("Reconnect Fehler nach Scan");
+            return;
+        }
+    Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
+    if(Wifi::sendMessagecode(server, Wifi::SEND_SIGNALSTRENGTH, networkData.data(), networkData.size()) <= 0) Serial.println("Fehler beim senden von scan Daten");
+    delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+    return;
+}
+
 void setup(){
 	Serial.begin(9600);
     pinMode(SENDPIN, INPUT);
@@ -101,16 +123,7 @@ void loop(){
     while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::reconnect(6000);
     if(buttonPressed[0] == 1){
         buttonPressed[0] = 2;
-        unsigned long startTime = millis();
-        for(uint8_t i=0; i < networkData.size(); ++i){
-            if(Wifi::scanForNetworkAvg(networkData[i], 128, Wifi::AVERAGE, 10, 4, 40) != ERR_OK) Serial.println("Avg Scan Fehler");
-            Serial.println(networkData[i].rssi);
-        }
-        if(!Wifi::getFlag(Wifi::WIFICONNECTED))
-            if(Wifi::reconnect(2000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");
-        Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
-        for(uint8_t i=0; i < 3; ++i)
-            if(Wifi::sendMessagecode(server, Wifi::SEND_SIGNALSTRENGTH, networkData.data(), networkData.size()) <= 0) Serial.println("Fehler beim senden von rssi avg");
+        runScan(true);
     }
     if(buttonPressed[1] == 1){
         buttonPressed[1] = 2;
@@ -121,15 +134,6 @@ void loop(){
         if(Wifi::sendMessagecode(server, Wifi::SEND_POSITION_Y, nullptr, 0) <= 0) Serial.println("Fehler beim senden von y");
     }
     if(buttonPressed[3] == 1){
-        unsigned long startTime = millis();
-        for(uint8_t i=0; i < networkData.size(); ++i){
-            if(Wifi::scanForNetwork(networkData[i], 6, 30) != ERR_OK) Serial.println("Scan kaputt :c");
-            Serial.println(networkData[i].rssi);
-        }
-        if(!Wifi::getFlag(Wifi::WIFICONNECTED))
-            if(Wifi::reconnect(2000) != ERR_OK) Serial.println("Reconnect Fehler nach Scan");
-        Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
-        if(Wifi::sendMessagecode(server, Wifi::SEND_SIGNALSTRENGTH, networkData.data(), networkData.size()) <= 0) Serial.println("Fehler beim senden von rssi non avg");
-        delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+        runScan(false);
     }
 }
