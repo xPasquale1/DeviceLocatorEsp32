@@ -1,6 +1,6 @@
 import socket
 
-routers = ["HotspotPascal", "Hotspot1", "Hotspot2"]
+routers = ["HotspotPascal", "iPhone von Philippe", "Hotspot2"]
 
 def sendUdpMessage(message: str, ip, port) -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

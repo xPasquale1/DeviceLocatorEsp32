@@ -25,7 +25,8 @@ namespace Wifi{
         SEND_SIGNALSTRENGTH,
         ADD_ROUTER,
         SETSENDIP,
-        ACK
+        ACK,
+        SEND_SINGLE
     };
     /*  Nachrichtenformate:
         1 Byte SEND_POSITION_X
@@ -34,6 +35,7 @@ namespace Wifi{
         1 Byte ADD_ROUTER          | n Bytes SSID
         1 Byte SETSENDIP           | 4 Bytes IP           | 2 Bytes PORT
         1 Byte ACK
+        1 BYTE SEND_SINGLE         | 1 Byte RSSI
     */
 
     struct WifiStation{
@@ -416,24 +418,28 @@ namespace Wifi{
     int sendMessagecode(UDPServer& server, MESSAGECODES code, NetworkData* data, uint8_t dataCount){
         if(server.socket == -1) return -1;
         size_t sendBufferSize = 0;
+        server.sendBuffer[0] = code;
         switch(code){
             case SEND_POSITION_X:{
-                server.sendBuffer[0] = SEND_POSITION_X;
                 sendBufferSize = 1;
                 break;
             }
             case SEND_POSITION_Y:{
-                server.sendBuffer[0] = SEND_POSITION_Y;
                 sendBufferSize = 1;
                 break;
             }
             case SEND_SIGNALSTRENGTH:{
                 if(data == nullptr) return -1;
-                server.sendBuffer[0] = SEND_SIGNALSTRENGTH;
                 for(uint8_t i=0; i < dataCount; ++i){
                     server.sendBuffer[i+1] = data[i].rssi;
                 }
                 sendBufferSize = dataCount+1;
+                break;
+            }
+            case SEND_SINGLE:{
+                if(data == nullptr || dataCount < 1) return -1;
+                server.sendBuffer[1] = data[0].rssi;
+                sendBufferSize = 2;
                 break;
             }
             default: return -1;

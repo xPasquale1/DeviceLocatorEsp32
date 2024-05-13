@@ -5,9 +5,11 @@
 
 /*
     TODOS:
-    Sollte Informationen an den Client senden, sollte es Verbindungsprobleme,... geben, auch Statusupdates über den Scanfortschritt oder ähnliches wäre gut
+    Sollte Informationen an die Anwendung senden, sollte es Verbindungsprobleme,... geben, auch Statusupdates über den Scanfortschritt oder ähnliches wäre gut
 
-    Der Client sollte auch Befehle senden können, um Datenpunkte anzufragen, damit man auch Daten auslesen kann während niemand im Weg steht
+    Die Anwendung sollte auch Befehle senden können, um Datenpunkte anzufragen, damit man auch Daten auslesen kann während niemand im Weg steht
+
+    Die Anwendung sollte auch Statusmeldungen anfragen können, um z.B. die konfigurierten Router abzufragen, IP,...
 */
 
 #define SENDPIN 35
@@ -106,7 +108,7 @@ void setup(){
         while(1);
     }
     xTaskCreatePinnedToCore(buttonTask, "buttonTask", 2000, nullptr, 0, &buttonTaskHandle, 0);    //TODO 1000 war zu wenig scheinbar...
-    if(Wifi::createUDPServer(server, "192.168.178.66", 4984) != ERR_OK){
+    if(Wifi::createUDPServer(server, "10.27.32.24", 4984) != ERR_OK){   //TODO testen ob das konfigurierbar ist
         Serial.println("Fehler createUDPServer()");
         while(1);
     }
