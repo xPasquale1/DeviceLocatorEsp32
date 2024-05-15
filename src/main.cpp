@@ -70,6 +70,11 @@ void buttonTask(void* params){
                     Serial.print(*port);
                     break;
                 }
+                case Wifi::REQUEST_SCAN:{
+                    Serial.println("Request bekommen!");
+                    buttonPressed[0] = 1;
+                    break;
+                }
             }
         }
     }
@@ -108,7 +113,7 @@ void setup(){
         while(1);
     }
     xTaskCreatePinnedToCore(buttonTask, "buttonTask", 2000, nullptr, 0, &buttonTaskHandle, 0);    //TODO 1000 war zu wenig scheinbar...
-    if(Wifi::createUDPServer(server, "10.27.32.24", 4984) != ERR_OK){   //TODO testen ob das konfigurierbar ist
+    if(Wifi::createUDPServer(server, "192.168.178.66", 4984) != ERR_OK){   //TODO testen ob das konfigurierbar ist
         Serial.println("Fehler createUDPServer()");
         while(1);
     }
@@ -122,7 +127,10 @@ void setup(){
 }
 
 void loop(){
-    while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::reconnect(6000);
+    while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
+        Serial.println("Verbindung verloren, versuche Neuaufbau...");
+        if(Wifi::reconnect(6000) != ERR_OK) Serial.println("Verbindung wiederherstellen fehlgeschlagen!");
+    }
     if(buttonPressed[0] == 1){
         buttonPressed[0] = 2;
         runScan(true);

@@ -26,7 +26,8 @@ namespace Wifi{
         ADD_ROUTER,
         SETSENDIP,
         ACK,
-        SEND_SINGLE
+        SEND_SINGLE,
+        REQUEST_SCAN
     };
     /*  Nachrichtenformate:
         1 Byte SEND_POSITION_X
@@ -36,6 +37,7 @@ namespace Wifi{
         1 Byte SETSENDIP           | 4 Bytes IP           | 2 Bytes PORT
         1 Byte ACK
         1 BYTE SEND_SINGLE         | 1 Byte RSSI
+        1 BYTE REQUEST_SCAN
     */
 
     struct WifiStation{
