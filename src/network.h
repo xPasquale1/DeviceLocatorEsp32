@@ -24,6 +24,7 @@ namespace Wifi{
         SEND_POSITION_Y,
         SEND_SIGNALSTRENGTH,
         ADD_ROUTER,
+        RESET_ROUTERS,
         SETSENDIP,
         ACK,
         SEND_SINGLE,
@@ -34,6 +35,7 @@ namespace Wifi{
         1 Byte SEND_POSITION_Y
         1 Byte SEND_SIGNALSTRENGTH | 1 Byte RSSI Router 1 | 1 Byte RSSI Router 2 | 1Byte RSSI Router 3,...
         1 Byte ADD_ROUTER          | n Bytes SSID
+        1 Byte RESET_ROUTERS
         1 Byte SETSENDIP           | 4 Bytes IP           | 2 Bytes PORT
         1 Byte ACK
         1 BYTE SEND_SINGLE         | 1 Byte RSSI
@@ -422,6 +424,10 @@ namespace Wifi{
         size_t sendBufferSize = 0;
         server.sendBuffer[0] = code;
         switch(code){
+            case ACK:{
+                sendBufferSize = 1;
+                break;
+            }
             case SEND_POSITION_X:{
                 sendBufferSize = 1;
                 break;

@@ -48,6 +48,11 @@ void buttonTask(void* params){
         int length = Wifi::recvData(server, nullptr);
         if(length > 0){
             switch(server.recvBuffer[0]){
+                case Wifi::RESET_ROUTERS:{
+                    networkData.clear();
+                    Serial.println("Routereinträge gelöscht");
+                    break;
+                }
                 case Wifi::ADD_ROUTER:{
                     Wifi::NetworkData router;
                     router.ssid = new char[length];     //+1 für \0
@@ -55,6 +60,17 @@ void buttonTask(void* params){
                         router.ssid[i-1] = server.recvBuffer[i];
                     }
                     router.ssid[length-1] = '\0';
+                    bool alreadySet = false;
+                    for(size_t i=0; i < networkData.size(); ++i){
+                        if(strcmp(router.ssid, networkData[i].ssid) == 0){
+                            alreadySet = true;
+                            break;
+                        }
+                    }
+                    if(alreadySet){
+                        Serial.println("Router bereits vorhanden");
+                        break;
+                    }
                     networkData.push_back(router);
                     Serial.print("Neuen Router erhalten: ");
                     Serial.println(router.ssid);
