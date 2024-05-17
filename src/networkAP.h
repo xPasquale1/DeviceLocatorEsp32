@@ -43,45 +43,35 @@ namespace Wifi{
         1 BYTE REQUEST_SCAN
     */
 
-    struct WifiStation{
+    struct WifiAP{
         esp_netif_t* netif = nullptr;
         volatile uint8_t flags = 0;
-        esp_netif_ip_info_t ipInfo = {};
         uint8_t mac[6];
-    }; static WifiStation client;
+    }; static WifiAP server;
 
-    void setFlag(WIFIFLAGS flag){client.flags |= flag;}
-    void resetFlag(WIFIFLAGS flag){client.flags &= ~flag;}
-    bool getFlag(WIFIFLAGS flag){return (client.flags & flag);}
+    void setFlag(WIFIFLAGS flag){server.flags |= flag;}
+    void resetFlag(WIFIFLAGS flag){server.flags &= ~flag;}
+    bool getFlag(WIFIFLAGS flag){return (server.flags & flag);}
 
     void eventHandler(void* event_handler_arg, esp_event_base_t event_base, int32_t event_id, void* event_data){
         if(event_base == WIFI_EVENT){
             switch(event_id){
-                case WIFI_EVENT_STA_START:{
-                    Serial.println("Wifi gestartet");
+                case WIFI_EVENT_AP_START:{
+                    Serial.println("Gestartet");
                     setFlag(WIFISTARTED);
                     break;
                 }
-                case WIFI_EVENT_STA_STOP:{
-                    Serial.println("Wifi gestoppt");
+                case WIFI_EVENT_AP_STOP:{
+                    Serial.println("Gestoppt");
                     resetFlag(WIFISTARTED);
                     break;
                 }
-                case WIFI_EVENT_STA_CONNECTED:{
+                case WIFI_EVENT_AP_STACONNECTED:{
+                    Serial.println("Hi");
                     break;
                 }
-                case WIFI_EVENT_STA_DISCONNECTED:{
-                    resetFlag(WIFICONNECTED);
-                    break;
-                }
-            }
-        }else if(event_base == IP_EVENT){
-            switch(event_id){
-                case IP_EVENT_STA_GOT_IP:{
-                    ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
-                    client.ipInfo = event->ip_info;
-                    Serial.println(inet_ntoa(client.ipInfo.ip.addr));
-                    setFlag(WIFICONNECTED);
+                case WIFI_EVENT_AP_STADISCONNECTED:{
+                    Serial.println("Tschüss");
                     break;
                 }
             }
@@ -152,7 +142,7 @@ namespace Wifi{
         }
     }
 
-    //Nicht blockend, initialisiert den Wifi Treiber im STA Modus
+    //Nicht blockend, muss nur einmalig vor allem anderen aufgerufen werden
     esp_err_t init(){
         esp_err_t err;
         if(err = esp_netif_init() != ERR_OK) return err;
@@ -184,59 +174,46 @@ namespace Wifi{
         antennaConfig.enabled_ant1 = 1;
         if(err = esp_wifi_set_ant(&antennaConfig) != ERR_OK) return err;
 
-        if(err = esp_wifi_get_mac(WIFI_IF_STA, client.mac) != ERR_OK) return err;
+        if(err = esp_wifi_get_mac(WIFI_IF_AP, server.mac) != ERR_OK) return err;
+
         return ERR_OK;
     }
 
-    esp_err_t connect(unsigned long timeoutMillis = 5000){
+    //Der Esp agiert als AP
+    esp_err_t createNetwork(const char* ssid, const char* password, uint8_t channel=11, uint8_t maxConnections=2){
         esp_err_t err;
-        if(getFlag(WIFICONNECTED)) return ERR_OK;
-        if(err = esp_wifi_connect() != ERR_OK) return err;
-        unsigned long startTime = millis();
-        while(!getFlag(WIFICONNECTED)){
-            if(millis() - startTime >= timeoutMillis) return ESP_ERR_TIMEOUT;
-        }
-        return ERR_OK;
-    }
-
-    //Blockend, konfiguriert das aktuelle Netzwerk, schließt Verbindung und startet den Wifi Treiber neu, verbindet aber nicht
-    esp_err_t setNetwork(const char* ssid, const char* password){
-        unsigned long startTime = millis();
-        esp_err_t err;
-        if(getFlag(WIFICONNECTED)){
-            if(err = esp_wifi_disconnect() != ERR_OK){
-                Serial.println("Fehler bei esp_wifi_disconnect");
-                return err;
-            }
-        }
         if(getFlag(WIFISTARTED)){
             if(err = esp_wifi_stop() != ERR_OK){
                 Serial.println("Fehler bei esp_wifi_stop");
                 return err;
             }
         }
-        if(!client.netif) client.netif = esp_netif_create_default_wifi_sta();
-        if(!client.netif){
-            Serial.println("Grrr Fehler bei esp_netif_create_default_wifi_sta");
+        if(!server.netif) server.netif = esp_netif_create_default_wifi_ap();
+        if(!server.netif){
+            Serial.println("Grrr Fehler bei esp_netif_create_default_wifi_ap");
             return ESP_FAIL;
         };
         wifi_config_t wifiConfig = {};
-        memcpy(wifiConfig.sta.ssid, ssid, strlen(ssid)+1);
-        memcpy(wifiConfig.sta.password, password, strlen(password)+1);
-        wifiConfig.sta.scan_method = WIFI_FAST_SCAN;
-        if(err = esp_wifi_set_mode(WIFI_MODE_STA) != ERR_OK){
+        memcpy(wifiConfig.ap.ssid, ssid, strlen(ssid)+1);
+        memcpy(wifiConfig.ap.password, password, strlen(password)+1);
+        wifiConfig.ap.channel = channel;
+        wifiConfig.ap.ssid_hidden = 0;
+        wifiConfig.ap.authmode = WIFI_AUTH_WPA2_PSK;
+        wifiConfig.ap.max_connection = maxConnections;
+        // wifiConfig.ap.beacon_interval = 60000;
+        if(err = esp_wifi_set_mode(WIFI_MODE_AP) != ERR_OK){
             Serial.println("Fehler bei esp_wifi_set_mode");
             return err;
         }
-        if(err = esp_wifi_set_config(WIFI_IF_STA, &wifiConfig) != ERR_OK){
+        if(err = esp_wifi_set_config(WIFI_IF_AP, &wifiConfig) != ERR_OK){
             Serial.println("Fehler bei esp_wifi_set_config");
             return err;
         }
         if(err = esp_wifi_start() != ERR_OK){
-            Serial.println("Fehler bei esp_wifi_start");
+            Serial.println("Fehler bei esp_wifi_start()");
             return err;
         }
-        while(!getFlag(WIFISTARTED));
+        while(!getFlag(WIFISTARTED)){};
         return ERR_OK;
     }
 
@@ -257,13 +234,13 @@ namespace Wifi{
         uint8_t buffer[256]{0};             //TODO könnte zu groß/klein sein
         buffer[0] = 0x40;                   //PaketID
         memset(&buffer[4], 0xFF, 6);        //Zielmacadresse
-        memcpy(&buffer[10], client.mac, 6); //Sendermacadresse
+        memcpy(&buffer[10], server.mac, 6); //Sendermacadresse
         memset(&buffer[16], 0xFF, 6);       //BSSID
         uint16_t offset = 0;
         offset += addTagToPacket(&buffer[24], (uint8_t*)ssid, 0, ssidLength);
         offset += addTagToPacket(&buffer[24+offset], supportedRates, 1, sizeof(supportedRates));
         offset += addTagToPacket(&buffer[24+offset], supportedRatesExt, 50, sizeof(supportedRatesExt));
-        return esp_wifi_80211_tx(WIFI_IF_STA, buffer, 24+offset, true);
+        return esp_wifi_80211_tx(WIFI_IF_AP, buffer, 24+offset, true);
     }
 
     //Blockend und disconnected die aktive Verbindung, also muss nach allen Scans Wifi::reconnect() aufgerufen werden
@@ -272,8 +249,12 @@ namespace Wifi{
     //TODO disconnect könnte man verhindern mit einem zweiten esp32
     esp_err_t scanForNetwork(NetworkData& data, int8_t retries = 3, uint32_t timeoutMillis = 100){
         esp_err_t err;
-        if(getFlag(WIFICONNECTED))
-            if(err = esp_wifi_disconnect() != ERR_OK) return err;
+        // if(getFlag(WIFISTARTED))
+        //     if(err = esp_wifi_stop() != ERR_OK){
+        //         Serial.println("Fehler bei esp_wifi_stop");
+        //         return err;
+        //     }
+        // while(getFlag(WIFISTARTED)){};
         scanData.validData = false;
         scanData.rssi = 0;
         scanData.ssid = data.ssid;
@@ -283,11 +264,18 @@ namespace Wifi{
             uint8_t retriesTmp = retries;
             for(uint8_t i=1; i <= 13; ++i){     //Teste alle Channel durch
                 retries = retriesTmp;
-                if(err = esp_wifi_set_channel(i, WIFI_SECOND_CHAN_NONE) != ERR_OK) return err;
+                if((err = esp_wifi_set_channel(i, WIFI_SECOND_CHAN_NONE)) != ERR_OK){
+                    Serial.println("Fehler bei esp_wifi_set_channel");
+                    Serial.println(err);
+                    return err;
+                }
                 while(retries >= 0){
                     retries -= 1;
                     unsigned long startTime = millis();
-                    if(err = sendProbeRequest(data.ssid, strlen(data.ssid)) != ERR_OK) return err;
+                    if(err = sendProbeRequest(data.ssid, strlen(data.ssid)) != ERR_OK){
+                        Serial.println("Fehler bei sendProbeRequest");
+                        return err;
+                    }
                     while(!scanData.validData){
                         if(millis() - startTime >= timeoutMillis) break;
                     }
@@ -295,11 +283,19 @@ namespace Wifi{
                 }
             }
         }else{
-            if(err = esp_wifi_set_channel(data.channel, WIFI_SECOND_CHAN_NONE) != ERR_OK) return err;
+            if(err = esp_wifi_set_channel(data.channel, WIFI_SECOND_CHAN_NONE) != ERR_OK){
+                Serial.println("Fehler bei esp_wifi_set_channel");
+                Serial.println((int)err);
+                Serial.println(4);
+                return err;
+            }
             while(retries >= 0){
                 retries -= 1;
                 unsigned long startTime = millis();
-                if(err = sendProbeRequest(data.ssid, strlen(data.ssid)) != ERR_OK) return err;
+                if(err = sendProbeRequest(data.ssid, strlen(data.ssid)) != ERR_OK){
+                    Serial.println("Fehler bei sendProbeRequest");
+                    return err;
+                }
                 while(!scanData.validData){
                     if(millis() - startTime >= timeoutMillis) break;
                 }
@@ -309,6 +305,10 @@ namespace Wifi{
         scanEnd:
         data.channel = scanData.channel;
         data.rssi = scanData.rssi;
+        // if(err = esp_wifi_start() != ERR_OK){
+        //     Serial.println("Fehler bei esp_wifi_start");
+        //     return err;
+        // }
         return ERR_OK;
     }
 

@@ -108,7 +108,7 @@ void runScan(bool avgScan=false){
         Serial.println(networkData[i].rssi);
     }
     if(!Wifi::getFlag(Wifi::WIFICONNECTED))
-        if(Wifi::reconnect(2000) != ERR_OK){
+        if(Wifi::connect(2000) != ERR_OK){
             Serial.println("Reconnect Fehler nach Scan");
             return;
         }
@@ -125,28 +125,23 @@ void setup(){
     pinMode(INCYPIN, INPUT);
     pinMode(SPAMPIN, INPUT);
     if(Wifi::init() != ERR_OK){
-        Serial.println("Fehler bei Wifi::init()");
+        Serial.println("Fehler bei Wifi::init");
         while(1);
     }
     xTaskCreatePinnedToCore(buttonTask, "buttonTask", 2000, nullptr, 0, &buttonTaskHandle, 0);    //TODO 1000 war zu wenig scheinbar...
     if(Wifi::createUDPServer(server, "192.168.178.66", 4984) != ERR_OK){   //TODO testen ob das konfigurierbar ist
-        Serial.println("Fehler createUDPServer()");
+        Serial.println("Fehler bei createUDPServer");
+        while(1);
+    }
+    if(Wifi::setNetwork(WIFISSID0, WIFIPASSWORD0) != ERR_OK){
+        Serial.println("Fehler bei Wifi::setNetwork");
         while(1);
     }
     Serial.println("Alles initialisiert");
-    while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
-        if(Wifi::setNetwork(WIFISSID0, WIFIPASSWORD0, 6000) == ERR_OK){
-            Serial.println("Verbindung hergestellt!");
-            break;
-        }
-    }
 }
 
 void loop(){
-    while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
-        Serial.println("Verbindung verloren, versuche Neuaufbau...");
-        if(Wifi::reconnect(6000) != ERR_OK) Serial.println("Verbindung wiederherstellen fehlgeschlagen!");
-    }
+    while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::connect(3000);
     if(buttonPressed[0] == 1){
         buttonPressed[0] = 2;
         runScan(true);
