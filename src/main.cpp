@@ -86,7 +86,7 @@ void buttonTask(void* params){
                     Serial.print(*port);
                     break;
                 }
-                case Wifi::REQUEST_SCAN:{
+                case Wifi::REQUEST_SCANS:{
                     Serial.println("Request bekommen!");
                     buttonPressed[0] = 1;
                     break;

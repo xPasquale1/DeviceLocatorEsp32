@@ -29,7 +29,7 @@ namespace Wifi{
         SETSENDIP,
         ACK,
         SEND_SINGLE,
-        REQUEST_SCAN
+        REQUEST_SCANS
     };
     /*  Nachrichtenformate:
         1 Byte SEND_POSITION_X
@@ -39,8 +39,8 @@ namespace Wifi{
         1 Byte RESET_ROUTERS
         1 Byte SETSENDIP           | 4 Bytes IP           | 2 Bytes PORT
         1 Byte ACK
-        1 BYTE SEND_SINGLE         | 1 Byte RSSI
-        1 BYTE REQUEST_SCAN
+        1 BYTE SEND_SINGLE         | 1 Byte RSSI          //TODO Unnötig, man kann einfach REQUEST_SCANS mit 1 verschicken
+        1 BYTE REQUEST_SCANS       | 2 Bytes Count        //TODO Scantyp angeben können
     */
 
     struct WifiStation{
@@ -80,7 +80,6 @@ namespace Wifi{
                 case IP_EVENT_STA_GOT_IP:{
                     ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
                     client.ipInfo = event->ip_info;
-                    Serial.println(inet_ntoa(client.ipInfo.ip.addr));
                     setFlag(WIFICONNECTED);
                     break;
                 }
