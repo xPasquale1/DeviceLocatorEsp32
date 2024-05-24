@@ -38,6 +38,57 @@ void debounceButton(uint8_t pin, uint8_t idx){
     }
 }
 
+void checkNetwork(){
+    int length = Wifi::recvData(server, nullptr);
+    if(length > 0){
+        switch(server.recvBuffer[0]){
+            case Wifi::RESET_ROUTERS:{
+                networkData.clear();
+                Serial.println("Routereinträge gelöscht");
+                break;
+            }
+            case Wifi::ADD_ROUTER:{
+                Wifi::NetworkData router;
+                router.ssid = new char[length];     //+1 für \0
+                for(int i=0; i < length; ++i){
+                    router.ssid[i-1] = server.recvBuffer[i];
+                }
+                router.ssid[length-1] = '\0';
+                bool alreadySet = false;
+                for(size_t i=0; i < networkData.size(); ++i){
+                    if(strcmp(router.ssid, networkData[i].ssid) == 0){
+                        alreadySet = true;
+                        break;
+                    }
+                }
+                if(alreadySet){
+                    Serial.println("Router bereits vorhanden");
+                    break;
+                }
+                networkData.push_back(router);
+                Serial.print("Neuen Router erhalten: ");
+                Serial.println(router.ssid);
+                break;
+            }
+            case Wifi::SETSENDIP:{
+                uint32_t* ip = (uint32_t*)server.recvBuffer+1;
+                uint16_t* port = (uint16_t*)server.recvBuffer+5;
+                Wifi::changeUDPServerDestination(server, *ip, *port);
+                Serial.print("Neue Ziel-IP erhalten: ");
+                Serial.print(inet_ntoa(ip));
+                Serial.print(":");
+                Serial.print(*port);
+                break;
+            }
+            case Wifi::REQUEST_SCANS:{
+                Serial.println("Request bekommen!");
+                buttonPressed[0] = 1;
+                break;
+            }
+        }
+    }
+}
+
 void buttonTask(void* params){
     while(1){
         debounceButton(SENDPIN, 0);
@@ -45,54 +96,6 @@ void buttonTask(void* params){
         debounceButton(INCYPIN, 2);
         debounceButton(SPAMPIN, 3);
         delay(5);
-        int length = Wifi::recvData(server, nullptr);
-        if(length > 0){
-            switch(server.recvBuffer[0]){
-                case Wifi::RESET_ROUTERS:{
-                    networkData.clear();
-                    Serial.println("Routereinträge gelöscht");
-                    break;
-                }
-                case Wifi::ADD_ROUTER:{
-                    Wifi::NetworkData router;
-                    router.ssid = new char[length];     //+1 für \0
-                    for(int i=0; i < length; ++i){
-                        router.ssid[i-1] = server.recvBuffer[i];
-                    }
-                    router.ssid[length-1] = '\0';
-                    bool alreadySet = false;
-                    for(size_t i=0; i < networkData.size(); ++i){
-                        if(strcmp(router.ssid, networkData[i].ssid) == 0){
-                            alreadySet = true;
-                            break;
-                        }
-                    }
-                    if(alreadySet){
-                        Serial.println("Router bereits vorhanden");
-                        break;
-                    }
-                    networkData.push_back(router);
-                    Serial.print("Neuen Router erhalten: ");
-                    Serial.println(router.ssid);
-                    break;
-                }
-                case Wifi::SETSENDIP:{
-                    uint32_t* ip = (uint32_t*)server.recvBuffer+1;
-                    uint16_t* port = (uint16_t*)server.recvBuffer+5;
-                    Wifi::changeUDPServerDestination(server, *ip, *port);
-                    Serial.print("Neue Ziel-IP erhalten: ");
-                    Serial.print(inet_ntoa(ip));
-                    Serial.print(":");
-                    Serial.print(*port);
-                    break;
-                }
-                case Wifi::REQUEST_SCANS:{
-                    Serial.println("Request bekommen!");
-                    buttonPressed[0] = 1;
-                    break;
-                }
-            }
-        }
     }
 }
 
@@ -129,14 +132,13 @@ void setup(){
         while(1);
     }
     xTaskCreatePinnedToCore(buttonTask, "buttonTask", 2000, nullptr, 0, &buttonTaskHandle, 0);    //TODO 1000 war zu wenig scheinbar...
-    if(Wifi::createUDPServer(server, "192.168.178.66", 4984) != ERR_OK){   //TODO testen ob das konfigurierbar ist
+    if(Wifi::createUDPServer(server, "192.168.178.66", 4984) != ERR_OK){
         Serial.println("Fehler bei createUDPServer");
         while(1);
     }
-    if(Wifi::setNetwork(WIFISSID0, WIFIPASSWORD0) != ERR_OK){
-        Serial.println("Fehler bei Wifi::setNetwork");
-        while(1);
-    }
+    if(Wifi::setNetwork(WIFISSID0, WIFIPASSWORD0) != ERR_OK) while(1);
+	while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::connect(3000);
+	Serial.println(inet_ntoa(Wifi::client.ipInfo.ip.addr));
     Serial.println("Alles initialisiert");
 }
 
@@ -157,4 +159,5 @@ void loop(){
     if(buttonPressed[3] == 1){
         runScan(false);
     }
+    checkNetwork();
 }
