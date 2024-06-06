@@ -27,6 +27,8 @@ static std::vector<Wifi::NetworkData> networkData;
 
 Wifi::UDPServer server;
 
+unsigned long _idle = 0;
+
 void debounceButton(uint8_t pin, uint8_t idx){
     digitalRead(pin) == HIGH ? ++debounceCounter[idx] : --debounceCounter[idx];
     if(debounceCounter[idx] > 8) debounceCounter[idx] = 8;
@@ -103,7 +105,7 @@ void runScan(bool avgScan=false){
     if(networkData.size() < 1) return;
     unsigned long startTime = millis();
     for(uint8_t i=0; i < networkData.size(); ++i){
-        esp_err_t err = avgScan ? Wifi::scanForNetworkAvg(networkData[i], 128, Wifi::AVERAGE, 10, 4, 40) : Wifi::scanForNetwork(networkData[i], 6, 30);
+        esp_err_t err = avgScan ? Wifi::scanForNetworkAvg(networkData[i], 512, Wifi::AVERAGE, 10, 4, 40) : Wifi::scanForNetwork(networkData[i], 6, 30);
         if(err != ERR_OK){
             Serial.println("Scan fehlgeschlagen :c");
             return;
@@ -118,6 +120,7 @@ void runScan(bool avgScan=false){
     Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
     if(Wifi::sendMessagecode(server, Wifi::SEND_SIGNALSTRENGTH, networkData.data(), networkData.size()) <= 0) Serial.println("Fehler beim senden von scan Daten");
     delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+    _idle = millis();
     return;
 }
 
@@ -144,6 +147,11 @@ void setup(){
 
 void loop(){
     while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::connect(3000);
+    unsigned long cur = millis();
+    if((cur - _idle) >= 12000){     //Force einen Disconnect ca. alle 12 Sekunden, da das WIFI_DISCONNECTED Event nicht immer funktioniert... 
+        if(Wifi::getFlag(Wifi::WIFICONNECTED)) esp_wifi_disconnect();
+        _idle = cur;
+    }
     if(buttonPressed[0] == 1){
         buttonPressed[0] = 2;
         runScan(true);

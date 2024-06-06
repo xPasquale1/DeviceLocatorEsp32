@@ -71,6 +71,7 @@ namespace Wifi{
                     break;
                 }
                 case WIFI_EVENT_STA_DISCONNECTED:{
+                    Serial.println("Wifi disconnected");
                     resetFlag(WIFICONNECTED);
                     break;
                 }
@@ -80,6 +81,7 @@ namespace Wifi{
                 case IP_EVENT_STA_GOT_IP:{
                     ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
                     client.ipInfo = event->ip_info;
+                    Serial.println("Wifi connected");
                     setFlag(WIFICONNECTED);
                     break;
                 }
