@@ -27,6 +27,8 @@ static std::vector<Wifi::NetworkData> networkData;
 
 Wifi::UDPServer server;
 
+volatile uint16_t scanCount = 0;
+
 unsigned long _idle = 0;
 
 void debounceButton(uint8_t pin, uint8_t idx){
@@ -84,7 +86,10 @@ void checkNetwork(){
             }
             case Wifi::REQUEST_SCANS:{
                 Serial.println("Request bekommen!");
-                buttonPressed[0] = 1;
+                scanCount = (server.recvBuffer[2]<<8) | server.recvBuffer[1];
+                Serial.println(scanCount);
+                if(scanCount == 1) buttonPressed[0] = 1;
+                else buttonPressed[3] = 1;
                 break;
             }
         }
@@ -165,7 +170,10 @@ void loop(){
         if(Wifi::sendMessagecode(server, Wifi::SEND_POSITION_Y, nullptr, 0) <= 0) Serial.println("Fehler beim senden von y");
     }
     if(buttonPressed[3] == 1){
-        runScan(false);
+        do{
+            runScan(false);
+            if(scanCount > 0) scanCount--;
+        }while(scanCount > 0);
     }
     checkNetwork();
 }
