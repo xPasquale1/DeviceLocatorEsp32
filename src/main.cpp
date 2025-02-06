@@ -23,11 +23,11 @@ unsigned char buttonPressed[BUTTONCOUNT]{0};
 
 TaskHandle_t buttonTaskHandle;
 
-static std::vector<Wifi::NetworkData> networkData;
+std::vector<Wifi::NetworkData> networkData;
 
 Wifi::UDPServer server;
 
-volatile uint16_t scanCount = 0;
+uint16_t scanCount = 0;
 
 unsigned long _idle = 0;
 
@@ -140,12 +140,17 @@ void setup(){
         while(1);
     }
     xTaskCreatePinnedToCore(buttonTask, "buttonTask", 2000, nullptr, 0, &buttonTaskHandle, 0);    //TODO 1000 war zu wenig scheinbar...
-    if(Wifi::createUDPServer(server, "192.168.178.66", 4984) != ERR_OK){
+    if(Wifi::createUDPServer(server, "192.168.178.76", 4984) != ERR_OK){
         Serial.println("Fehler bei createUDPServer");
         while(1);
     }
     if(Wifi::setNetwork(WIFISSID0, WIFIPASSWORD0) != ERR_OK) while(1);
-	while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::connect(3000);
+    Serial.println("Setup fertig. Suche Verbindung...");
+    esp_err_t err;
+	while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
+        err = Wifi::connect();
+        Serial.println(err);
+    }
 	Serial.println(inet_ntoa(Wifi::client.ipInfo.ip.addr));
     Serial.println("Alles initialisiert");
 }
@@ -153,7 +158,7 @@ void setup(){
 void loop(){
     while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::connect(3000);
     unsigned long cur = millis();
-    if((cur - _idle) >= 12000){     //Force einen Disconnect ca. alle 12 Sekunden, da das WIFI_DISCONNECTED Event nicht immer funktioniert... 
+    if((cur - _idle) >= 30000){     //Force einen Disconnect ca. alle 30 Sekunden, da das WIFI_DISCONNECTED Event nicht immer funktioniert... 
         if(Wifi::getFlag(Wifi::WIFICONNECTED)) esp_wifi_disconnect();
         _idle = cur;
     }

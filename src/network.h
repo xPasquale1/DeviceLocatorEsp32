@@ -58,20 +58,21 @@ namespace Wifi{
         if(event_base == WIFI_EVENT){
             switch(event_id){
                 case WIFI_EVENT_STA_START:{
-                    Serial.println("Wifi gestartet");
+                    Serial.println("Wifi started Event");
                     setFlag(WIFISTARTED);
                     break;
                 }
                 case WIFI_EVENT_STA_STOP:{
-                    Serial.println("Wifi gestoppt");
+                    Serial.println("Wifi stopped Event");
                     resetFlag(WIFISTARTED);
                     break;
                 }
                 case WIFI_EVENT_STA_CONNECTED:{
+                    Serial.println("Wifi connected Event");
                     break;
                 }
                 case WIFI_EVENT_STA_DISCONNECTED:{
-                    Serial.println("Wifi disconnected");
+                    Serial.println("Wifi disconnected Event");
                     resetFlag(WIFICONNECTED);
                     break;
                 }
@@ -81,7 +82,7 @@ namespace Wifi{
                 case IP_EVENT_STA_GOT_IP:{
                     ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
                     client.ipInfo = event->ip_info;
-                    Serial.println("Wifi connected");
+                    Serial.println("Wifi got ip Event");
                     setFlag(WIFICONNECTED);
                     break;
                 }

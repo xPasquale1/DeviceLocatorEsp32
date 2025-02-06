@@ -5,5 +5,5 @@
 #define WIFISSID1 "Hotspot1"
 #define WIFIPASSWORD1 "test1234"
 
-#define WIFISSID0 "Hotspot2"
+#define WIFISSID0 "Hotspot1"
 #define WIFIPASSWORD0 "test1234"
