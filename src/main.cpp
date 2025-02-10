@@ -7,8 +7,6 @@
     TODOS:
     Sollte Informationen an die Anwendung senden, sollte es Verbindungsprobleme,... geben, auch Statusupdates über den Scanfortschritt oder ähnliches wäre gut
 
-    Die Anwendung sollte auch Befehle senden können, um Datenpunkte anzufragen, damit man auch Daten auslesen kann während niemand im Weg steht
-
     Die Anwendung sollte auch Statusmeldungen anfragen können, um z.B. die konfigurierten Router abzufragen, IP,...
 */
 

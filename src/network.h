@@ -29,18 +29,20 @@ namespace Wifi{
         SETSENDIP,
         ACK,
         SEND_SINGLE,
-        REQUEST_SCANS
+        REQUEST_SCANS,
+        SCAN_INFO
     };
     /*  Nachrichtenformate:
-        1 Byte SEND_POSITION_X
-        1 Byte SEND_POSITION_Y
-        1 Byte SEND_SIGNALSTRENGTH | 1 Byte RSSI Router 1 | 1 Byte RSSI Router 2 | 1Byte RSSI Router 3,...
-        1 Byte ADD_ROUTER          | n Bytes SSID
-        1 Byte RESET_ROUTERS
-        1 Byte SETSENDIP           | 4 Bytes IP           | 2 Bytes PORT
-        1 Byte ACK
-        1 BYTE SEND_SINGLE         | 1 Byte RSSI          //TODO Unnötig, man kann einfach REQUEST_SCANS mit 1 verschicken
-        1 BYTE REQUEST_SCANS       | 2 Bytes Count        //TODO Scantyp angeben können
+        1 Byte (0x00) SEND_POSITION_X
+        1 Byte (0x01) SEND_POSITION_Y
+        1 Byte (0x02) SEND_SIGNALSTRENGTH  | 1 Byte RSSI Router 1 | 1 Byte RSSI Router 2 | 1Byte RSSI Router 3,...
+        1 Byte (0x03) ADD_ROUTER           | n Bytes SSID
+        1 Byte (0x04) RESET_ROUTERS
+        1 Byte (0x05) SETSENDIP            | 4 Bytes IP           | 2 Bytes PORT
+        1 Byte (0x06) ACK
+        1 BYTE (0x07) SEND_SINGLE          | 1 Byte RSSI          //TODO Unnötig, man kann einfach REQUEST_SCANS mit 1 verschicken
+        1 BYTE (0x08) REQUEST_SCANS        | 2 Bytes Count        //TODO Scantyp angeben können
+        1 BYTE (0x09) SCAN_INFO            | 2 BYTE Anzahl Erfolgreicher Scans | 2 BYTE Fehlerhafte Scans  | 2 BYTE Durchscnittliche Zeit pro Scan
     */
 
     struct WifiStation{
