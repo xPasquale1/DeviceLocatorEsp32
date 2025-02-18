@@ -414,6 +414,11 @@ namespace Wifi{
         return ERR_OK;
     }
 
+    void changeUDPServerDestination(UDPServer& server, in_addr ip, uint16_t port){
+        server.receiver.sin_addr = ip;
+        server.receiver.sin_port = htons(port);
+    }
+
     void changeUDPServerDestination(UDPServer& server, const char* ip, uint16_t port){
         server.receiver.sin_addr.s_addr = inet_addr(ip);
         server.receiver.sin_port = htons(port);

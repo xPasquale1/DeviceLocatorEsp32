@@ -41,7 +41,8 @@ void debounceButton(uint8_t pin, uint8_t idx){
 }
 
 void checkNetwork(){
-    int length = Wifi::recvData(server, nullptr);
+    sockaddr_in transmitter;
+    int length = Wifi::recvData(server, &transmitter);
     if(length > 0){
         switch(server.recvBuffer[0]){
             case Wifi::RESET_ROUTERS:{
@@ -73,13 +74,17 @@ void checkNetwork(){
                 break;
             }
             case Wifi::SETSENDIP:{
-                uint32_t* ip = (uint32_t*)server.recvBuffer+1;
-                uint16_t* port = (uint16_t*)server.recvBuffer+5;
-                Wifi::changeUDPServerDestination(server, *ip, *port);
+                uint32_t ip;
+                uint16_t port;
+                memcpy(&ip, server.recvBuffer + 1, 4);
+                memcpy(&port, server.recvBuffer + 5, 2);
+                ip = ntohl(ip);
+                port = ntohs(port);
+                Wifi::changeUDPServerDestination(server, ip, port);
                 Serial.print("Neue Ziel-IP erhalten: ");
                 Serial.print(inet_ntoa(ip));
                 Serial.print(":");
-                Serial.print(*port);
+                Serial.println(port);
                 break;
             }
             case Wifi::REQUEST_SCANS:{
@@ -108,6 +113,8 @@ void runScan(bool avgScan=false){
     if(networkData.size() < 1) return;
     unsigned long startTime = millis();
     for(uint8_t i=0; i < networkData.size(); ++i){
+        Serial.print("Scanne: ");
+        Serial.println(networkData[i].ssid);
         esp_err_t err = avgScan ? Wifi::scanForNetworkAvg(networkData[i], 512, Wifi::AVERAGE, 10, 4, 40) : Wifi::scanForNetwork(networkData[i], 6, 30);
         if(err != ERR_OK){
             Serial.println("Scan fehlgeschlagen :c");
@@ -138,7 +145,7 @@ void setup(){
         while(1);
     }
     xTaskCreatePinnedToCore(buttonTask, "buttonTask", 2000, nullptr, 0, &buttonTaskHandle, 0);    //TODO 1000 war zu wenig scheinbar...
-    if(Wifi::createUDPServer(server, "192.168.178.76", 4984) != ERR_OK){
+    if(Wifi::createUDPServer(server, "255.255.255.255", 4984) != ERR_OK){
         Serial.println("Fehler bei createUDPServer");
         while(1);
     }
