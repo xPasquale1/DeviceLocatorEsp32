@@ -28,21 +28,23 @@ namespace Wifi{
         RESET_ROUTERS,
         SETSENDIP,
         ACK,
-        SEND_SINGLE,
+        REQUEST_AVG,
         REQUEST_SCANS,
-        SCAN_INFO
+        SCAN_INFO,
+        SEND_STATUS
     };
     /*  Nachrichtenformate:
         1 Byte (0x00) SEND_POSITION_X
         1 Byte (0x01) SEND_POSITION_Y
-        1 Byte (0x02) SEND_SIGNALSTRENGTH  | 1 Byte RSSI Router 1 | 1 Byte RSSI Router 2 | 1Byte RSSI Router 3,...
-        1 Byte (0x03) ADD_ROUTER           | n Bytes SSID
+        1 Byte (0x02) SEND_SIGNALSTRENGTH   | 1 Byte RSSI Router 1  | 1 Byte RSSI Router 2  | 1 Byte RSSI Router 3,...
+        1 Byte (0x03) ADD_ROUTER            | n Bytes SSID
         1 Byte (0x04) RESET_ROUTERS
-        1 Byte (0x05) SETSENDIP            | 4 Bytes IP           | 2 Bytes PORT
+        1 Byte (0x05) SETSENDIP             | 4 Bytes IP            | 2 Bytes PORT
         1 Byte (0x06) ACK
-        1 BYTE (0x07) SEND_SINGLE          | 1 Byte RSSI          //TODO Unnötig, man kann einfach REQUEST_SCANS mit 1 verschicken
-        1 BYTE (0x08) REQUEST_SCANS        | 2 Bytes Count        //TODO Scantyp angeben können
-        1 BYTE (0x09) SCAN_INFO            | 2 BYTE Anzahl Erfolgreicher Scans | 2 BYTE Fehlerhafte Scans  | 2 BYTE Durchscnittliche Zeit pro Scan
+        1 BYTE (0x07) REQUEST_AVG
+        1 BYTE (0x08) REQUEST_SCANS         | 2 Bytes Count        //TODO Scantyp angeben können
+        1 BYTE (0x09) SCAN_INFO             | 2 Bytes Anzahl Erfolgreicher Scans            | 2 Bytes Fehlerhafte Scans | 2 Bytes Durchscnittliche Zeit pro Scan
+        1 BYTE (0x0A) SEND_STATUS           | 4 Bytes IP            | 2 Bytes Port          | 1 Byte SSID Anzahl        | n Bytes SSIDs
     */
 
     struct WifiStation{
@@ -462,12 +464,6 @@ namespace Wifi{
                     server.sendBuffer[i+1] = data[i].rssi;
                 }
                 sendBufferSize = dataCount+1;
-                break;
-            }
-            case SEND_SINGLE:{
-                if(data == nullptr || dataCount < 1) return -1;
-                server.sendBuffer[1] = data[0].rssi;
-                sendBufferSize = 2;
                 break;
             }
             default: return -1;

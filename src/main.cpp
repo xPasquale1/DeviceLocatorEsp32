@@ -91,8 +91,12 @@ void checkNetwork(){
                 Serial.println("Request bekommen!");
                 scanCount = (server.recvBuffer[2]<<8) | server.recvBuffer[1];
                 Serial.println(scanCount);
-                if(scanCount == 1) buttonPressed[0] = 1;
-                else buttonPressed[3] = 1;
+                buttonPressed[3] = 1;
+                break;
+            }
+            case Wifi::REQUEST_AVG:{
+                Serial.println("Request bekommen!");
+                buttonPressed[0] = 1;
                 break;
             }
         }
