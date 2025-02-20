@@ -194,6 +194,7 @@ namespace Wifi{
         return ERR_OK;
     }
 
+    //Blockend
     esp_err_t connect(unsigned long timeoutMillis = 5000){
         esp_err_t err;
         if(getFlag(WIFICONNECTED)) return ERR_OK;

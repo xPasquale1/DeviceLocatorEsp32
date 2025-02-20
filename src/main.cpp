@@ -25,6 +25,10 @@ std::vector<Wifi::NetworkData> networkData;
 
 Wifi::UDPServer server;
 
+uint32_t customReceiverIP = 0;
+uint16_t customReceiverPort = 0;
+bool usesCustomReceiver = false;
+
 uint16_t scanCount = 0;
 
 unsigned long _idle = 0;
@@ -81,6 +85,9 @@ void checkNetwork(){
                 ip = ntohl(ip);
                 port = ntohs(port);
                 Wifi::changeUDPServerDestination(server, ip, port);
+                customReceiverIP = ip;
+                customReceiverPort = port;
+                usesCustomReceiver = true;
                 Serial.print("Neue Ziel-IP erhalten: ");
                 Serial.print(inet_ntoa(ip));
                 Serial.print(":");
@@ -131,6 +138,11 @@ void runScan(bool avgScan=false){
             Serial.println("Reconnect Fehler nach Scan");
             return;
         }
+        if(!usesCustomReceiver){
+            Wifi::changeUDPServerDestination(server, Wifi::client.ipInfo.gw.addr, 4984);
+            Serial.print("Default Gateway: ");
+            Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
+        }
     Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
     if(Wifi::sendMessagecode(server, Wifi::SEND_SIGNALSTRENGTH, networkData.data(), networkData.size()) <= 0) Serial.println("Fehler beim senden von scan Daten");
     delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
@@ -149,7 +161,7 @@ void setup(){
         while(1);
     }
     xTaskCreatePinnedToCore(buttonTask, "buttonTask", 2000, nullptr, 0, &buttonTaskHandle, 0);    //TODO 1000 war zu wenig scheinbar...
-    if(Wifi::createUDPServer(server, "255.255.255.255", 4984) != ERR_OK){
+    if(Wifi::createUDPServer(server, "192.168.178.1", 4984) != ERR_OK){     //Schickt per default ans Standardgateway
         Serial.println("Fehler bei createUDPServer");
         while(1);
     }
@@ -158,6 +170,13 @@ void setup(){
     esp_err_t err;
 	while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
         err = Wifi::connect();
+        if(err == ERR_OK){
+            if(!usesCustomReceiver){
+                Wifi::changeUDPServerDestination(server, Wifi::client.ipInfo.gw.addr, 4984);
+                Serial.print("Default Gateway: ");
+                Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
+            }
+        }
         Serial.println(err);
     }
 	Serial.println(inet_ntoa(Wifi::client.ipInfo.ip.addr));
@@ -165,7 +184,15 @@ void setup(){
 }
 
 void loop(){
-    while(!Wifi::getFlag(Wifi::WIFICONNECTED)) Wifi::connect(3000);
+    while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
+        if(Wifi::connect(3000) == ERR_OK){
+            if(!usesCustomReceiver){
+                Wifi::changeUDPServerDestination(server, Wifi::client.ipInfo.gw.addr, 4984);
+                Serial.print("Default Gateway: ");
+                Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
+            }
+        }
+    }
     unsigned long cur = millis();
     if((cur - _idle) >= 30000){     //Force einen Disconnect ca. alle 30 Sekunden, da das WIFI_DISCONNECTED Event nicht immer funktioniert... 
         if(Wifi::getFlag(Wifi::WIFICONNECTED)) esp_wifi_disconnect();
