@@ -27,10 +27,12 @@ namespace Wifi{
         ADD_ROUTER,
         RESET_ROUTERS,
         SETSENDIP,
+        REQ,
         ACK,
         REQUEST_AVG,
         REQUEST_SCANS,
         SCAN_INFO,
+        REQ_STATUS,
         SEND_STATUS
     };
     /*  Nachrichtenformate:
@@ -40,11 +42,13 @@ namespace Wifi{
         1 Byte (0x03) ADD_ROUTER            | n Bytes SSID
         1 Byte (0x04) RESET_ROUTERS
         1 Byte (0x05) SETSENDIP             | 4 Bytes IP            | 2 Bytes PORT
-        1 Byte (0x06) ACK
-        1 BYTE (0x07) REQUEST_AVG
-        1 BYTE (0x08) REQUEST_SCANS         | 2 Bytes Count        //TODO Scantyp angeben können
-        1 BYTE (0x09) SCAN_INFO             | 2 Bytes Anzahl Erfolgreicher Scans            | 2 Bytes Fehlerhafte Scans | 2 Bytes Durchscnittliche Zeit pro Scan
-        1 BYTE (0x0A) SEND_STATUS           | 4 Bytes IP            | 2 Bytes Port          | 1 Byte SSID Anzahl        | n Bytes SSIDs
+        1 BYTE (0x06) REQ
+        1 Byte (0x07) ACK
+        1 BYTE (0x08) REQUEST_AVG
+        1 BYTE (0x09) REQUEST_SCANS         | 2 Bytes Count        //TODO Scantyp angeben können
+        1 BYTE (0x0A) SCAN_INFO             | 2 Bytes Anzahl Erfolgreicher Scans            | 2 Bytes Fehlerhafte Scans | 2 Bytes Durchschnittliche Zeit pro Scan
+        1 BYTE (0x0B) REQ_STATUS
+        1 BYTE (0x0C) SEND_STATUS           | 4 Bytes IP            | 2 Bytes Port          | 1 Byte SSID Anzahl        | n Bytes SSIDs
     */
 
     struct WifiStation{
@@ -442,7 +446,8 @@ namespace Wifi{
     int sendData(UDPServer& server, size_t length){return sendto(server.socket, server.sendBuffer, length, 0, (sockaddr*)&server.receiver, sizeof(server.receiver));}
 
     //Blockend
-    int sendMessagecode(UDPServer& server, MESSAGECODES code, NetworkData* data, uint8_t dataCount){
+    //SEND_SIGNALSTRENGTH erwartet einen Array von NetworkData und size ist die Anzahl
+    int sendMessagecode(UDPServer& server, MESSAGECODES code, void* data, uint32_t size){
         if(server.socket == -1) return -1;
         size_t sendBufferSize = 0;
         server.sendBuffer[0] = code;
@@ -451,20 +456,20 @@ namespace Wifi{
                 sendBufferSize = 1;
                 break;
             }
-            case SEND_POSITION_X:{
-                sendBufferSize = 1;
-                break;
-            }
-            case SEND_POSITION_Y:{
-                sendBufferSize = 1;
-                break;
-            }
             case SEND_SIGNALSTRENGTH:{
                 if(data == nullptr) return -1;
-                for(uint8_t i=0; i < dataCount; ++i){
-                    server.sendBuffer[i+1] = data[i].rssi;
+                NetworkData* networks = (NetworkData*)data;
+                for(uint8_t i=0; i < size; ++i){
+                    server.sendBuffer[i+1] = networks[i].rssi;
                 }
-                sendBufferSize = dataCount+1;
+                sendBufferSize = size+1;
+                break;
+            }
+            case SEND_STATUS:{
+                for(uint32_t i=0; i < size; ++i){
+                    server.sendBuffer[i+1] = ((uint8_t*)data)[i];
+                }
+                sendBufferSize = size+1;
                 break;
             }
             default: return -1;
