@@ -33,22 +33,26 @@ namespace Wifi{
         REQUEST_SCANS,
         SCAN_INFO,
         REQ_STATUS,
-        SEND_STATUS
+        SEND_STATUS,
+        ALIVE_REQ,
+        ALIVE_ACK
     };
     /*  Nachrichtenformate:
         1 Byte (0x00) SEND_POSITION_X
         1 Byte (0x01) SEND_POSITION_Y
-        1 Byte (0x02) SEND_SIGNALSTRENGTH   | 1 Byte RSSI Router 1  | 1 Byte RSSI Router 2  | 1 Byte RSSI Router 3,...
-        1 Byte (0x03) ADD_ROUTER            | n Bytes SSID
+        1 Byte (0x02) SEND_SIGNALSTRENGTH   | 1 Byte Anzahl | 1 Byte RSSI Router 1  | 1 Byte RSSI Router 2  | 1 Byte RSSI Router 3,...
+        1 Byte (0x03) ADD_ROUTER            | 1 Byte Länge  | n Bytes SSID
         1 Byte (0x04) RESET_ROUTERS
         1 Byte (0x05) SETSENDIP             | 4 Bytes IP            | 2 Bytes PORT
         1 BYTE (0x06) REQ
         1 Byte (0x07) ACK
         1 BYTE (0x08) REQUEST_AVG
-        1 BYTE (0x09) REQUEST_SCANS         | 2 Bytes Count        //TODO Scantyp angeben können
+        1 BYTE (0x09) REQUEST_SCANS         | 2 Bytes Count
         1 BYTE (0x0A) SCAN_INFO             | 2 Bytes Anzahl Erfolgreicher Scans            | 2 Bytes Fehlerhafte Scans | 2 Bytes Durchschnittliche Zeit pro Scan
         1 BYTE (0x0B) REQ_STATUS
         1 BYTE (0x0C) SEND_STATUS           | 4 Bytes IP            | 2 Bytes Port          | 1 Byte SSID Anzahl        | n Bytes SSIDs
+        1 BYTE (0x0D) ALIVE_REQ
+        1 BYTE (0x0E) ALIVE_ACK
     */
 
     struct WifiStation{
@@ -459,8 +463,9 @@ namespace Wifi{
             case SEND_SIGNALSTRENGTH:{
                 if(data == nullptr) return -1;
                 NetworkData* networks = (NetworkData*)data;
+                server.sendBuffer[1] = size;    //TODO size ist 32 Bit, Anzahl ist nur 8 Bit...
                 for(uint8_t i=0; i < size; ++i){
-                    server.sendBuffer[i+1] = networks[i].rssi;
+                    server.sendBuffer[i+2] = networks[i].rssi;
                 }
                 sendBufferSize = size+1;
                 break;
@@ -475,5 +480,233 @@ namespace Wifi{
             default: return -1;
         }
         return sendto(server.socket, server.sendBuffer, sendBufferSize, 0, (sockaddr*)&server.receiver, sizeof(server.receiver));
+    }
+
+    // ###################################################################
+    // ############################### TCP ###############################
+    // ###################################################################
+
+    struct TCPConnection{
+        int listeningSocket = -1;
+        int transferSocket = -1;
+    };
+    
+    esp_err_t createTCPConnection(TCPConnection& conn, u_short port)noexcept{
+        conn.listeningSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if(conn.listeningSocket == -1) return ESP_FAIL;
+    
+        sockaddr_in serverAddr = {};
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_port = htons(port);
+        serverAddr.sin_addr.s_addr = INADDR_ANY;
+    
+        int opt = 1;
+        setsockopt(conn.listeningSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+        u_long mode = 1;
+        ioctlsocket(conn.listeningSocket, FIONBIO, &mode);
+    
+        if(bind(conn.listeningSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) return ESP_FAIL;
+        if(listen(conn.listeningSocket, 1)) return ESP_FAIL;
+        return ESP_OK;
+    }
+    
+    esp_err_t disconnectTCPConnection(TCPConnection& conn)noexcept{
+        if(conn.transferSocket == -1) return ESP_OK;
+        if(shutdown(conn.transferSocket, SHUT_RDWR) == -1) return ESP_FAIL;
+        if(closesocket(conn.transferSocket) == -1) return ESP_FAIL;
+        conn.transferSocket = -1;
+        return ESP_OK;
+    }
+    
+    esp_err_t destroyTCPConnection(TCPConnection& conn)noexcept{
+        if(disconnectTCPConnection(conn) != ESP_OK) return ESP_FAIL;
+        if(closesocket(conn.listeningSocket) == -1) return ESP_FAIL;
+        conn.listeningSocket = -1;
+        return ESP_OK;
+    }
+    
+    /// @brief Diese Funktion testet, ob sich ein Client verbinden will. Diese Funktion blockiert nicht, daher wird
+    /// SUCCESS auch dann zurückgegeben, wenn sich kein Client verbinden will. Um zu testen, ob ein Client verbunden
+    /// ist, sollte connectionOnTCPConnection genutzt werden! Falls bereits ein Client verbunden ist, wird SUCCESS
+    /// zurückgegeben.
+    /// @param conn 
+    /// @return GENERIC_ERROR bei Fehlern, sonst SUCCESS
+    esp_err_t listenTCPConnection(TCPConnection& conn, uint32_t timeoutMillis = 0)noexcept{
+        if(conn.transferSocket != -1) return ESP_OK;
+    
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(conn.listeningSocket, &readSet);
+    
+        timeval timeout;
+        timeout.tv_sec = timeoutMillis / 1000;
+        timeout.tv_usec = (timeoutMillis % 1000) * 1000;
+    
+        int result = select(conn.listeningSocket+1, &readSet, nullptr, nullptr, &timeout);
+    
+        if(result == -1) return ESP_FAIL;
+        if(result > 0 && FD_ISSET(conn.listeningSocket, &readSet)){
+            sockaddr receiver;
+            socklen_t clientSize = sizeof(receiver);
+            conn.transferSocket = accept(conn.listeningSocket, &receiver, &clientSize);
+            if(conn.transferSocket == -1) return ESP_FAIL;
+            u_long mode = 1;
+            ioctlsocket(conn.transferSocket, FIONBIO, &mode);
+            int opt = 1;
+            if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt)) == -1) return ESP_FAIL;
+            if(setsockopt(conn.transferSocket, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt)) == -1) return ESP_FAIL;
+        }
+        return ESP_OK;
+    }
+    
+    //TODO Teste, ob aktuelle Verbindung bereits die Richtige ist anstatt immer disconnect zu machen
+    //TODO Error checks für closesocket
+    esp_err_t connectTCPConnection(TCPConnection& conn, uint32_t ip, u_short port, uint32_t timeoutMillis = 100)noexcept{
+        if(disconnectTCPConnection(conn) != ESP_OK) return ESP_FAIL;
+        conn.transferSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if(conn.transferSocket == -1) return ESP_FAIL;
+    
+        sockaddr_in targetAddr = {};
+        targetAddr.sin_family = AF_INET;
+        targetAddr.sin_port = htons(port);
+        targetAddr.sin_addr.s_addr = ip;
+    
+        // u_long mode = 1;
+        // ioctlsocket(conn.transferSocket, FIONBIO, &mode);
+        int opt = 1;
+        if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt)) == -1) return ESP_FAIL;
+        if(setsockopt(conn.transferSocket, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt)) == -1) return ESP_FAIL;
+
+        if(connect(conn.transferSocket, (sockaddr*)&targetAddr, sizeof(targetAddr)) == -1 && errno != EWOULDBLOCK && errno != EINPROGRESS){
+            if(closesocket(conn.transferSocket) == -1) return ESP_FAIL;
+            conn.transferSocket = -1;
+            return ESP_FAIL;
+        }
+
+        u_long mode = 1;
+        ioctlsocket(conn.transferSocket, FIONBIO, &mode);
+    
+        // fd_set writeSet;
+        // FD_ZERO(&writeSet);
+        // FD_SET(conn.transferSocket, &writeSet);
+    
+        // timeval timeout;
+        // timeout.tv_sec = timeoutMillis / 1000;
+        // timeout.tv_usec = (timeoutMillis % 1000) * 1000;
+    
+        // int result = select(0, nullptr, &writeSet, nullptr, &timeout);
+    
+        // if(result == 0){    //Timeout
+        //     closesocket(conn.transferSocket);
+        //     Serial.println(errno);
+        //     Serial.println(strerror(errno));
+        //     conn.transferSocket = -1;
+        //     return ESP_FAIL;
+        // }else if(result == -1){   //Select Fehler
+        //     closesocket(conn.transferSocket);
+        //     conn.transferSocket = -1;
+        //     return ESP_FAIL;
+        // }
+    
+        // if(FD_ISSET(conn.transferSocket, &writeSet)) return ESP_OK;
+    
+        // closesocket(conn.transferSocket);
+        // conn.transferSocket = -1;
+        return ESP_OK;
+    }
+    
+    /// @brief 
+    /// @param conn 
+    /// @param buffer 
+    /// @param bufferSize 
+    /// @return > 0 bei Erfolg, 0 keine Verbindung existiert/timeout, -2 falls Verbindung korrekt geschlossen worden ist,
+    /// sonst SOCKET_ERROR
+    int receiveTCPConnection(TCPConnection& conn, char* buffer, int bufferSize, uint32_t timeoutMillis = 0) noexcept {
+        if(conn.transferSocket == -1) return 0;
+
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(conn.transferSocket, &readSet);
+    
+        timeval timeout;
+        timeout.tv_sec = timeoutMillis / 1000;
+        timeout.tv_usec = (timeoutMillis % 1000) * 1000;
+    
+        int result = select(conn.transferSocket+1, &readSet, nullptr, nullptr, &timeout);
+    
+        if(result == -1){     //Select Fehler
+            Serial.println("Recv select Error ");
+            return ESP_FAIL;
+        }
+    
+        if(result == 0){    //Timeout
+            return 0;
+        }
+    
+        if(FD_ISSET(conn.transferSocket, &readSet)){    //Select erfolgreich
+            int ret = recv(conn.transferSocket, buffer, bufferSize, 0);
+            if(ret == -1){    //Fehler -> Socket schließen
+                if(closesocket(conn.transferSocket) == -1){
+                    Serial.println("Recv transfer socket schließen Fehler");
+                    return ESP_FAIL;
+                }
+                conn.transferSocket = -1;
+                Serial.println("Recv Error");
+                return ESP_FAIL;
+            }else if(ret == 0){     //Verbindung soll geschlossen werden
+                if(closesocket(conn.transferSocket) == -1){
+                    Serial.println("Recv transfer socket schließen Fehler");
+                    return ESP_FAIL;
+                }
+                conn.transferSocket = -1;
+                Serial.println("Verbindung sauber geschlossen");
+                return -2;
+            }
+            return ret;
+        }
+        return 0;
+    }
+    
+    //TODO Nutzt kein select, da der Sendpuffer eigentlich nie voll sein sollte bei so kleinen Nachrichten
+    /// @brief Sendet eine Nachricht an den aktuell verbundenen Client
+    /// @param conn 
+    /// @param code 
+    /// @param buffer 
+    /// @param bufferSize 
+    /// @return Die Anzahl der gesendeten Bytes bei Erfolg, 0 falls keine Verbindung vorhanden ist, sonst SOCKET_ERROR
+    int sendMessagecodeTCPConnection(TCPConnection& conn, MESSAGECODES code, void* buffer, int bufferSize)noexcept{
+        char sendBuffer[80];    //TODO könnte zu klein/groß sein
+        int sendBufferLength = 0;
+        sendBuffer[0] = code;
+        if(conn.transferSocket == -1) return 0;
+        switch(code){
+            case REQ:
+            case ACK:
+            case ALIVE_REQ:
+            case ALIVE_ACK:
+                sendBufferLength = 1;
+                break;
+            case SEND_SIGNALSTRENGTH:{
+                if(buffer == nullptr) return -1;
+                NetworkData* networks = (NetworkData*)buffer;
+                sendBuffer[1] = bufferSize;
+                for(uint8_t i=0; i < bufferSize; ++i){
+                    sendBuffer[i+2] = networks[i].rssi;
+                }
+                sendBufferLength = bufferSize+2;
+                break;
+            }
+            case SEND_STATUS:{
+                if(buffer == nullptr) return -1;
+                for(uint32_t i=0; i < bufferSize; ++i){
+                    sendBuffer[i+1] = ((uint8_t*)buffer)[i];
+                }
+                sendBufferLength = bufferSize+1;
+                break;
+            }
+            default: return -1;
+        }
+        int ret = send(conn.transferSocket, sendBuffer, sendBufferLength, 0);
+        return ret;
     }
 }

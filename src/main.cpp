@@ -12,18 +12,17 @@
 
 std::vector<Wifi::NetworkData> networkData;
 
-Wifi::UDPServer server;
-
-uint32_t customReceiverIP = 0;
-uint16_t customReceiverPort = 0;
-bool usesCustomReceiver = false;
+Wifi::TCPConnection conn;
 
 uint16_t scanCount = 0;
 
 unsigned long _idle = 0;
+unsigned long lastPing = 0;
 
 void runScan(bool avgScan=false){
     if(networkData.size() < 1) return;
+    Wifi::disconnectTCPConnection(conn);
+    delay(100);     //Kurz Warten, dass der Server das Disconnect hoffentlich bekommt...
     unsigned long startTime = millis();
     for(uint8_t i=0; i < networkData.size(); ++i){
         Serial.print("Scanne: ");
@@ -35,42 +34,51 @@ void runScan(bool avgScan=false){
         }
         Serial.println(networkData[i].rssi);
     }
-    if(!Wifi::getFlag(Wifi::WIFICONNECTED))
+    if(!Wifi::getFlag(Wifi::WIFICONNECTED)){
         if(Wifi::connect(2000) != ERR_OK){
             Serial.println("Reconnect Fehler nach Scan");
             return;
         }
-        if(!usesCustomReceiver){
-            Wifi::changeUDPServerDestination(server, Wifi::client.ipInfo.gw.addr, 4984);
-            Serial.print("Default Gateway: ");
-            Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
-        }
+    }
+    lastPing = millis();
     Serial.print("Scan hat "); Serial.print(millis() - startTime); Serial.println(" ms gedauert");
-    if(Wifi::sendMessagecode(server, Wifi::SEND_SIGNALSTRENGTH, networkData.data(), networkData.size()) <= 0) Serial.println("Fehler beim senden von scan Daten");
-    delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+    if(Wifi::connectTCPConnection(conn, Wifi::client.ipInfo.gw.addr, 4984, 3000) != ESP_OK) Serial.println("Konnte keine TCP Verbindung herstellen!");
+    if(Wifi::sendMessagecodeTCPConnection(conn, Wifi::SEND_SIGNALSTRENGTH, networkData.data(), networkData.size()) <= 0) Serial.println("Fehler beim senden von scan Daten");
     _idle = millis();
     return;
 }
 
+//TODO Theoretisch könnte man hier auch listen machen...
 void checkNetwork(){
     sockaddr_in transmitter;
-    int length = Wifi::recvData(server, &transmitter);
-    if(length > 0){
-        switch(server.recvBuffer[0]){
+    char buffer[1024];
+    int length = Wifi::receiveTCPConnection(conn, buffer, sizeof(buffer), 100);
+    int idx = 0;
+    while(length > 0){
+        switch(buffer[idx]){
+            case Wifi::ALIVE_REQ:{
+                lastPing = millis();
+                if(Wifi::sendMessagecodeTCPConnection(conn, Wifi::ALIVE_ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von Alive ACK");
+                idx++;
+                length -= 1;
+                break;
+            }
             case Wifi::RESET_ROUTERS:{
                 networkData.clear();
                 Serial.println("Routereinträge gelöscht");
-                if(Wifi::sendMessagecode(server, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von scan Daten");
-                delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+                if(Wifi::sendMessagecodeTCPConnection(conn, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von ACK");
+                idx++;
+                length -= 1;
                 break;
             }
             case Wifi::ADD_ROUTER:{
+                int ssidLength = buffer[idx+1];
                 Wifi::NetworkData router;
-                router.ssid = new char[length];     //+1 für \0
-                for(int i=0; i < length; ++i){
-                    router.ssid[i-1] = server.recvBuffer[i];
+                router.ssid = new char[ssidLength+1];     //+1 für \0
+                for(int i=0; i < ssidLength; ++i){
+                    router.ssid[i] = buffer[idx+2+i];
                 }
-                router.ssid[length-1] = '\0';
+                router.ssid[ssidLength] = '\0';
                 bool alreadySet = false;
                 for(size_t i=0; i < networkData.size(); ++i){
                     if(strcmp(router.ssid, networkData[i].ssid) == 0){
@@ -80,70 +88,38 @@ void checkNetwork(){
                 }
                 if(alreadySet){
                     Serial.println("Router bereits vorhanden");
+                    if(Wifi::sendMessagecodeTCPConnection(conn, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von ACK");
+                    idx += 2+ssidLength;
+                    length -= 2+ssidLength;
                     break;
                 }
                 networkData.push_back(router);
                 Serial.print("Neuen Router erhalten: ");
                 Serial.println(router.ssid);
-                if(Wifi::sendMessagecode(server, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von scan Daten");
-                delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
-                break;
-            }
-            case Wifi::SETSENDIP:{
-                uint32_t ip;
-                uint16_t port;
-                memcpy(&ip, server.recvBuffer + 1, 4);
-                memcpy(&port, server.recvBuffer + 5, 2);
-                ip = ntohl(ip);
-                port = ntohs(port);
-                Wifi::changeUDPServerDestination(server, ip, port);
-                customReceiverIP = ip;
-                customReceiverPort = port;
-                usesCustomReceiver = true;
-                Serial.print("Neue Ziel-IP erhalten: ");
-                Serial.print(inet_ntoa(ip));
-                Serial.print(":");
-                Serial.println(port);
-                if(Wifi::sendMessagecode(server, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von scan Daten");
-                delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+                if(Wifi::sendMessagecodeTCPConnection(conn, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von ACK");
+                idx += 2+ssidLength;
+                length -= 2+ssidLength;
                 break;
             }
             case Wifi::REQUEST_SCANS:{
                 Serial.println("Request Scans bekommen!");
-                scanCount = (server.recvBuffer[2]<<8) | server.recvBuffer[1];
+                scanCount = (buffer[idx+2]<<8) | buffer[idx+1];
                 Serial.println(scanCount);
-                if(Wifi::sendMessagecode(server, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von scan Daten");
-                delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+                if(Wifi::sendMessagecodeTCPConnection(conn, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von ACK");
                 do{
                     runScan(false);
                     if(scanCount > 0) scanCount--;
                 }while(scanCount > 0);
+                idx += 3;
+                length -= 3;
                 break;
             }
             case Wifi::REQUEST_AVG:{
                 Serial.println("Request Avg bekommen!");
-                if(Wifi::sendMessagecode(server, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von scan Daten");
-                delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+                if(Wifi::sendMessagecodeTCPConnection(conn, Wifi::ACK, nullptr, 0) <= 0) Serial.println("Fehler beim senden von ACK");
                 runScan(true);
-                break;
-            }
-            case Wifi::REQ_STATUS:{
-                Serial.println("Request Status bekommen!");
-                uint8_t buffer[400];
-                uint32_t ip = server.receiver.sin_addr.s_addr;
-                uint16_t port = server.receiver.sin_port;
-                memcpy(buffer, (void*)&ip, 4);
-                memcpy(buffer+4, (void*)&port, 2);
-                buffer[6] = networkData.size();
-                uint32_t offset = 7;
-                for(uint32_t i=0; i < networkData.size(); ++i){
-                    for(uint32_t j=0; j < strlen(networkData[i].ssid); ++j){
-                        buffer[offset++] = networkData[i].ssid[j];
-                    }
-                    buffer[offset++] = '\0';
-                }
-                if(Wifi::sendMessagecode(server, Wifi::ACK, buffer, offset) <= 0) Serial.println("Fehler beim senden von scan Daten");
-                delay(10);  //TODO Sockets sind blöd, keine Ahnung was die Funktionen genau machen, die Beschreibungen sind viel zu schlicht, der delay ist nur da, weil sonst die Pakete nicht ankommen
+                idx++;
+                length -= 1;
                 break;
             }
         }
@@ -156,8 +132,8 @@ void setup(){
         Serial.println("Fehler bei Wifi::init");
         while(1);
     }
-    if(Wifi::createUDPServer(server, "192.168.178.1", 4984) != ERR_OK){     //Schickt per default ans Standardgateway
-        Serial.println("Fehler bei createUDPServer");
+    if(Wifi::createTCPConnection(conn, 4984) != ERR_OK){
+        Serial.println("Fehler bei createTCPConnection");
         while(1);
     }
     if(Wifi::setNetwork(WIFISSID0, WIFIPASSWORD0) != ERR_OK) while(1);
@@ -166,11 +142,9 @@ void setup(){
 	while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
         err = Wifi::connect();
         if(err == ERR_OK){
-            if(!usesCustomReceiver){
-                Wifi::changeUDPServerDestination(server, Wifi::client.ipInfo.gw.addr, 4984);
-                Serial.print("Default Gateway: ");
-                Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
-            }
+            if(Wifi::connectTCPConnection(conn, Wifi::client.ipInfo.gw.addr, 4984, 3000) != ESP_OK) Serial.println("Konnte keine TCP Verbindung herstellen!");
+            Serial.print("Default Gateway: ");
+            Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
         }
         Serial.println(err);
     }
@@ -181,17 +155,20 @@ void setup(){
 void loop(){
     while(!Wifi::getFlag(Wifi::WIFICONNECTED)){
         if(Wifi::connect(3000) == ERR_OK){
-            if(!usesCustomReceiver){
-                Wifi::changeUDPServerDestination(server, Wifi::client.ipInfo.gw.addr, 4984);
+            if(conn.transferSocket == -1){
+                if(Wifi::connectTCPConnection(conn, Wifi::client.ipInfo.gw.addr, 4984, 3000) != ESP_OK) Serial.println("Konnte keine TCP Verbindung herstellen!");
+                Serial.println(conn.transferSocket);
                 Serial.print("Default Gateway: ");
                 Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
             }
         }
     }
     unsigned long cur = millis();
-    if((cur - _idle) >= 10000){     //Force einen Disconnect ca. alle 10 Sekunden, da das WIFI_DISCONNECTED Event nicht immer funktioniert... //TODO Sollte mir REQ und ACK erstetzt werden
+    if((cur - lastPing) >= 6000){
+        if(Wifi::disconnectTCPConnection(conn) != ESP_OK) Serial.println("Disconnect gescheitert!");
+        delay(1000);    //Warte 1 Sekunde bevor das WLAN abgebrochen wird
         if(Wifi::getFlag(Wifi::WIFICONNECTED)) esp_wifi_disconnect();
-        _idle = cur;
+        lastPing = cur;
     }
     checkNetwork();
 }
