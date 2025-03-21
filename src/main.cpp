@@ -35,9 +35,13 @@ void runScan(bool avgScan=false){
         }
         Serial.println(networkData[i].rssi);
     }
+    int retries = 3;
     if(!Wifi::getFlag(Wifi::WIFICONNECTED)){
-        if(Wifi::connect(2000) != ERR_OK){
-            Serial.println("Reconnect Fehler nach Scan");
+        for(int i=0; i < retries; ++i){
+            if(Wifi::connect(5000) == ERR_OK) break;
+        }
+        if(!Wifi::getFlag(Wifi::WIFICONNECTED)){
+            Serial.println("Reconnect nach Scan gescheitert");
             return;
         }
     }
@@ -59,9 +63,12 @@ void runScan(bool avgScan=false){
 
 //TODO Theoretisch könnte man hier auch listen machen...
 void checkNetwork(){
-    sockaddr_in transmitter;
     char buffer[1024];
-    int length = Wifi::receiveTCPConnection(conn, buffer, sizeof(buffer), 100);
+    int length = Wifi::receiveTCPConnection(conn, buffer, sizeof(buffer));
+    if(length == 0){
+        Serial.println("Verbindung sauber geschlossen");
+        Wifi::disconnectTCPConnection(conn);
+    }
     int idx = 0;
     while(length > 0){
         switch(buffer[idx]){
@@ -182,7 +189,6 @@ void loop(){
     unsigned long cur = millis();
     if((cur - lastPing) >= 6000){
         if(Wifi::disconnectTCPConnection(conn) != ESP_OK) Serial.println("Disconnect gescheitert!");
-        delay(1000);    //Warte 1 Sekunde bevor das WLAN abgebrochen wird
         if(Wifi::getFlag(Wifi::WIFICONNECTED)) esp_wifi_disconnect();
         lastPing = cur;
     }

@@ -510,10 +510,11 @@ namespace Wifi{
         return ESP_OK;
     }
     
-    esp_err_t disconnectTCPConnection(TCPConnection& conn)noexcept{
+    //TODO Error Handling hat hier mehr Probleme gemacht wie gelöst...
+    esp_err_t disconnectTCPConnection(TCPConnection& conn, bool doShutDown = false)noexcept{
         if(conn.transferSocket == -1) return ESP_OK;
-        if(shutdown(conn.transferSocket, SHUT_RDWR) == -1) return ESP_FAIL;
-        if(closesocket(conn.transferSocket) == -1) return ESP_FAIL;
+        if(doShutDown) shutdown(conn.transferSocket, SHUT_RDWR);
+        closesocket(conn.transferSocket);
         conn.transferSocket = -1;
         return ESP_OK;
     }
@@ -562,7 +563,10 @@ namespace Wifi{
     //TODO Teste, ob aktuelle Verbindung bereits die Richtige ist anstatt immer disconnect zu machen
     //TODO Error checks für closesocket
     esp_err_t connectTCPConnection(TCPConnection& conn, uint32_t ip, u_short port, uint32_t timeoutMillis = 100)noexcept{
-        if(disconnectTCPConnection(conn) != ESP_OK) return ESP_FAIL;
+        if(disconnectTCPConnection(conn) != ESP_OK){
+            Serial.println("Well shit...");
+            return ESP_FAIL;
+        }
         conn.transferSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if(conn.transferSocket == -1) return ESP_FAIL;
     
@@ -571,8 +575,6 @@ namespace Wifi{
         targetAddr.sin_port = htons(port);
         targetAddr.sin_addr.s_addr = ip;
     
-        // u_long mode = 1;
-        // ioctlsocket(conn.transferSocket, FIONBIO, &mode);
         int opt = 1;
         if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt)) == -1) return ESP_FAIL;
         if(setsockopt(conn.transferSocket, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt)) == -1) return ESP_FAIL;
@@ -586,32 +588,6 @@ namespace Wifi{
         u_long mode = 1;
         ioctlsocket(conn.transferSocket, FIONBIO, &mode);
     
-        // fd_set writeSet;
-        // FD_ZERO(&writeSet);
-        // FD_SET(conn.transferSocket, &writeSet);
-    
-        // timeval timeout;
-        // timeout.tv_sec = timeoutMillis / 1000;
-        // timeout.tv_usec = (timeoutMillis % 1000) * 1000;
-    
-        // int result = select(0, nullptr, &writeSet, nullptr, &timeout);
-    
-        // if(result == 0){    //Timeout
-        //     closesocket(conn.transferSocket);
-        //     Serial.println(errno);
-        //     Serial.println(strerror(errno));
-        //     conn.transferSocket = -1;
-        //     return ESP_FAIL;
-        // }else if(result == -1){   //Select Fehler
-        //     closesocket(conn.transferSocket);
-        //     conn.transferSocket = -1;
-        //     return ESP_FAIL;
-        // }
-    
-        // if(FD_ISSET(conn.transferSocket, &writeSet)) return ESP_OK;
-    
-        // closesocket(conn.transferSocket);
-        // conn.transferSocket = -1;
         return ESP_OK;
     }
     
@@ -619,55 +595,25 @@ namespace Wifi{
     /// @param conn 
     /// @param buffer 
     /// @param bufferSize 
-    /// @return > 0 bei Erfolg, 0 keine Verbindung existiert/timeout, -2 falls Verbindung korrekt geschlossen worden ist,
+    /// @return > 0 bei Erfolg, 0 Verbindung geschlossen, -1 Fehler, sonst -2
     /// sonst SOCKET_ERROR
-    int receiveTCPConnection(TCPConnection& conn, char* buffer, int bufferSize, uint32_t timeoutMillis = 0) noexcept {
-        if(conn.transferSocket == -1) return 0;
-
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(conn.transferSocket, &readSet);
-    
-        timeval timeout;
-        timeout.tv_sec = timeoutMillis / 1000;
-        timeout.tv_usec = (timeoutMillis % 1000) * 1000;
-    
-        int result = select(conn.transferSocket+1, &readSet, nullptr, nullptr, &timeout);
-    
-        if(result == -1){     //Select Fehler
-            Serial.println("Recv select Error ");
-            return ESP_FAIL;
-        }
-    
-        if(result == 0){    //Timeout
-            return 0;
-        }
-    
-        if(FD_ISSET(conn.transferSocket, &readSet)){    //Select erfolgreich
-            int ret = recv(conn.transferSocket, buffer, bufferSize, 0);
-            if(ret == -1){    //Fehler -> Socket schließen
-                if(closesocket(conn.transferSocket) == -1){
-                    Serial.println("Recv transfer socket schließen Fehler");
-                    return ESP_FAIL;
-                }
+    int receiveTCPConnection(TCPConnection& conn, char* buffer, int bufferSize)noexcept{
+        if(conn.transferSocket == -1) return -2;
+        int ret = recv(conn.transferSocket, buffer, bufferSize, 0);
+        if(ret == -1){
+            int wsaErr = errno;
+            if(wsaErr != EWOULDBLOCK && wsaErr != EAGAIN){
+                Serial.print("Daten empfangen schlug fehl: ");
+                Serial.println(errno);
+                closesocket(conn.transferSocket);   //TODO Informiert den anderen nicht, dass die Verbindung beendet wurde
                 conn.transferSocket = -1;
-                Serial.println("Recv Error");
-                return ESP_FAIL;
-            }else if(ret == 0){     //Verbindung soll geschlossen werden
-                if(closesocket(conn.transferSocket) == -1){
-                    Serial.println("Recv transfer socket schließen Fehler");
-                    return ESP_FAIL;
-                }
-                conn.transferSocket = -1;
-                Serial.println("Verbindung sauber geschlossen");
-                return -2;
+                return -1;
             }
-            return ret;
+            return -2;
         }
-        return 0;
+        return ret;
     }
     
-    //TODO Nutzt kein select, da der Sendpuffer eigentlich nie voll sein sollte bei so kleinen Nachrichten
     /// @brief Sendet eine Nachricht an den aktuell verbundenen Client
     /// @param conn 
     /// @param code 
