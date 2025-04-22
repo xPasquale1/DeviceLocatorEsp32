@@ -23,7 +23,7 @@ bool sendScan = false;
 void runScan(bool avgScan=false){
     if(networkData.size() < 1) return;
     Wifi::disconnectTCPConnection(conn);
-    delay(400);
+    // delay(400);
     unsigned long startTime = millis();
     for(uint8_t i=0; i < networkData.size(); ++i){
         Serial.print("Scanne: ");
@@ -178,6 +178,12 @@ void loop(){
                 Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
             }
         }
+    }
+    if(conn.transferSocket == -1){
+        if(Wifi::connectTCPConnection(conn, Wifi::client.ipInfo.gw.addr, 4984, 3000) != ESP_OK) Serial.println("Konnte keine TCP Verbindung herstellen!");
+        Serial.println(conn.transferSocket);
+        Serial.print("Default Gateway: ");
+        Serial.println(inet_ntoa(Wifi::client.ipInfo.gw.addr));
     }
     if(sendScan && conn.transferSocket != -1){
         if(Wifi::sendMessagecodeTCPConnection(conn, Wifi::SEND_SIGNALSTRENGTH, networkData.data(), networkData.size()) <= 0){
